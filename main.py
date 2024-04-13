@@ -65,6 +65,8 @@ class StatisticalTestType(enum.Enum):
 # I've made this a constant simply for sanity.
 CUMULATIVE_EXPOSURE_KEY = "Cumulative"
 
+# Nice bright purple to represent any errors visually
+ERROR_MAGENTA = (204.0, 0.0, 153.0)
 
 EXPECTED_STATE_DATA_HEADERS: list[str] = [
     "Protein",
@@ -234,8 +236,8 @@ class ExperimentalParameters:
     Simple container for the parameters of the experiment, how many states (assuming one is the default), and the number of deuterium exposure durations (in minutes)
     """
 
-    states: tuple[str]
-    exposures: tuple[str]
+    states: tuple[str, str]
+    exposures: tuple[str, ...]
 
     def __post_init__(self):
         assert len(self.states), "SAUSC only supports datafiles with two states."
@@ -283,8 +285,12 @@ class BaseFragment:
 
     def __post_init__(self) -> None:
         assert (
-            self.start_residue < self.end_residue
+            self.start_residue <= self.end_residue
         ), "End residue must be after the start residue."
+        expected_sequence_length = self.end_residue - self.start_residue + 1
+        assert (
+            len(self.sequence) == expected_sequence_length
+        ), "Sequence must have {expected_sequence_length} residues."
 
     def is_same_fragment(self, other: "BaseFragment") -> bool:
         return (
@@ -466,6 +472,15 @@ class Comparison(BaseFragment):
         )
 
 
+class SingleResidueComparison(Comparison):
+
+    def __post_init__(self) -> None:
+        if self.start_residue != self.end_residue:
+            raise ValueError(
+                "Single residue comparison must represent a single residue"
+            )
+
+
 def pooled_stdev(stdevs: npt.NDArray[np.float_]) -> float:
 
     # HDX data often contains a 0 timepoint reference
@@ -634,6 +649,30 @@ if __name__ == "__pymol":
             ),
             n_repeats=user_params.n_repeats,
         )
+
+        # Hopefully a user will call the default state "default"...
+        if "default" in experimental_params.states[0].lower():
+            default_is_first = True
+        elif "default" in experimental_params.states[1].lower():
+            default_is_first = False
+        else:
+            raise ValueError("Cannot determine which state is the default!")
+
+        # The results should be structured interlaced
+        default_states, other_states = np.reshape(loaded_results, (-1, 2)).T
+
+        if not default_is_first:
+            default_states, other_states = other_states, default_states
+
+        comparisons: list[dict[str, Comparison]] = [
+            compare_states(default, other, user_params, global_sem)
+            for default, other in zip(default_states, other_states)
+        ]
+
+        comparisons_by_exposure: dict[str, list[Comparison]] = {
+            exposure: [comparison[exposure] for comparison in comparisons]
+            for exposure in experimental_params.exposures
+        }
 
 
 if __name__ == "__main__":
