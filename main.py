@@ -439,8 +439,13 @@ def load_state_data(
     uptake_stdevs = loaded_data[1:, 13].astype(float)
 
     # fromkeys acts like a set but preserves order
-    unique_states: tuple[str] = tuple(dict.fromkeys(states).keys())
-    unique_exposures: tuple[str] = tuple(dict.fromkeys(exposures).keys())
+    # casting is relatively safe here as there are many moments where only two states are enforced
+    unique_states: tuple[str, str] = cast(
+        tuple[str, str], tuple(dict.fromkeys(states).keys())
+    )
+    unique_exposures: tuple[str] = cast(
+        tuple[str], tuple(dict.fromkeys(exposures).keys())
+    )
 
     experimental_parameters = ExperimentalParameters(
         states=unique_states, exposures=unique_exposures, max_residue=end_residues.max()
@@ -577,26 +582,24 @@ class ResidueType(enum.Enum):
 
 
 @dataclasses.dataclass(frozen=True)
-class SingleResidueComparison(Comparison):
-
+class SingleResidueComparison:
+    amino_acid: str
+    residue: int
+    uptake_difference: float
+    uptake_stdev: float
+    exposure: str
     residue_type: ResidueType
 
     def __post_init__(self) -> None:
-        if self.start_residue != self.end_residue:
-            raise ValueError(
-                "Single residue comparison must represent a single residue"
-            )
+        assert len(self.amino_acid) == 1, "Amino acid must be a single character."
 
     @classmethod
     def as_empty(cls, residue: int, exposure: str) -> "SingleResidueComparison":
         return cls(
-            sequence="/",
-            start_residue=residue,
-            end_residue=residue,
-            max_deuterium_uptake=np.nan,
+            amino_acid="-",
+            residue=residue,
             uptake_difference=np.nan,
-            p_value=np.nan,
-            is_significant=False,
+            uptake_stdev=np.nan,
             exposure=exposure,
             residue_type=ResidueType.NOT_COVERED,
         )
@@ -713,19 +716,47 @@ def split_comparisons_by_residue(
             for comparison in comparisons
             if comparison.residue_present(residue)
         ]
-
+        # Residue is not covered by any sequences, therefore missed in the digestion process.
         if len(residue_present) == 0:
             single_residue_comparisons.append(
                 SingleResidueComparison.as_empty(residue=residue, exposure=exposure)
             )
             continue
 
+        amino_acid: str = residue_present[0].sequence[
+            residue - residue_present[0].start_residue
+        ]
+
         is_significant = [
             comparison for comparison in residue_present if comparison.is_significant
         ]
 
-        if len(is_significant) == 0:
-            continue
+        single_residue_comparisons.append(
+            SingleResidueComparison(
+                amino_acid=amino_acid,
+                residue=residue,
+                uptake_difference=(
+                    np.nan
+                    if len(is_significant) == 0
+                    else cast(
+                        float, np.mean([i.uptake_difference for i in is_significant])
+                    )  # TODO: I'm not particularly sure if this makes sense mathematically...
+                ),
+                uptake_stdev=(
+                    np.nan
+                    if len(is_significant) == 0
+                    else cast(
+                        float, np.std([i.uptake_difference for i in is_significant])
+                    )  # TODO: I'm not particularly sure if this makes sense mathematically...
+                ),
+                exposure=exposure,
+                residue_type=(
+                    ResidueType.ALL_INSIGNIFICANT
+                    if len(is_significant) == 0
+                    else ResidueType.AVERAGED
+                ),
+            )
+        )
 
     return single_residue_comparisons
 
@@ -737,6 +768,7 @@ class FullSAUSCAnalysis:
     sequence_comparisons: dict[str, list[Comparison]]
     residue_comparisons: dict[str, list[SingleResidueComparison]]
     colouring: ColourScheme
+    full_sequence: str
 
 
 ### Plotting functionality ###
@@ -823,6 +855,11 @@ def draw_woods_plot(analysis: FullSAUSCAnalysis) -> None:
                 else f"Exposure = {exposure} minutes"
             ),
             loc="left",
+        )
+
+        ax.set_xticks(
+            np.arange(analysis.experimental_params.max_residue + 1),
+            analysis.full_sequence,
         )
 
         colour_map = (
@@ -993,6 +1030,12 @@ if __name__ == "__main__":
             exposure: split_comparisons_by_residue(comparisons, experimental_params)
             for exposure, comparisons in comparisons_by_exposure.items()
         }
+        protein_sequence = "".join(
+            [
+                residue.amino_acid
+                for residue in list(single_residue_comparisons.values())[0]
+            ]
+        )
 
         full_analysis = FullSAUSCAnalysis(
             user_params=user_params,
@@ -1000,6 +1043,7 @@ if __name__ == "__main__":
             sequence_comparisons=comparisons_by_exposure,
             residue_comparisons=single_residue_comparisons,
             colouring=colour_scheme,
+            full_sequence=protein_sequence,
         )
         return full_analysis
 
