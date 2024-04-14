@@ -114,7 +114,9 @@ def make_diverging_colormap(
     protection_cmap = matplotlib.colormaps[protection_colormap].resampled(128)
     deprotection_cmap = matplotlib.colormaps[deprotection_colormap].resampled(128)
 
-    new_colours = np.vstack((protection_cmap(sampling), deprotection_cmap(sampling)))
+    new_colours = np.vstack(
+        (protection_cmap(sampling)[::-1], deprotection_cmap(sampling))
+    )
 
     return ListedColormap(
         colors=new_colours,
@@ -397,8 +399,10 @@ class StateData(BaseFragment):
     @property
     def cumulative_data(self) -> Uptake:
         uptakes = self.exposures.values()
-        combined_mean = np.sum([uptake.mean for uptake in uptakes])
-        combined_stdev = pooled_stdev(np.array([uptake.stdev for uptake in uptakes]))
+        combined_mean = np.sum([uptake.mean for uptake in uptakes if uptake.mean > 0])
+        combined_stdev = pooled_stdev(
+            np.array([uptake.stdev for uptake in uptakes if uptake.stdev > 0])
+        )
         return Uptake(combined_mean, combined_stdev, cumulative=True)
 
 
