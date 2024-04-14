@@ -748,8 +748,8 @@ class WoodsPlotOptions:
     y_data = DataForVisualisation.UPTAKE_DIFFERENCE
     colour_data = DataForVisualisation.RELATIVE_UPTAKE_DIFFERENCE
     colour_normalisation = ColourNormalisationMode.ACROSS_EXPOSURES
-    box_thickness: float = 0.01
-    dpi: int = 100
+    box_thickness: float = 0.1
+    dpi: int = 150
     scale: float = 12
 
 
@@ -792,7 +792,7 @@ def draw_woods_plot(analysis: FullSAUSCAnalysis) -> None:
         + 1,  # Extra for the cumulative
         ncols=1,
         sharex=True,
-        sharey=True,
+        sharey=False,
         dpi=WOODS_PLOT_PARAMS.dpi,
         layout="constrained",
         figsize=(WOODS_PLOT_PARAMS.scale, WOODS_PLOT_PARAMS.scale),
@@ -822,7 +822,7 @@ def draw_woods_plot(analysis: FullSAUSCAnalysis) -> None:
                 if exposure == CUMULATIVE_EXPOSURE_KEY
                 else f"Exposure = {exposure} minutes"
             ),
-            loc="right",
+            loc="left",
         )
 
         colour_map = (
@@ -835,6 +835,9 @@ def draw_woods_plot(analysis: FullSAUSCAnalysis) -> None:
             else global_cmap
         )
 
+        fig.colorbar(
+            colour_map, ax=ax, label=pretty_string_for[WOODS_PLOT_PARAMS.colour_data]
+        )
         ax.set(
             ylabel=pretty_string_for[WOODS_PLOT_PARAMS.y_data],
             xlabel="Residue",
@@ -848,19 +851,28 @@ def draw_woods_plot(analysis: FullSAUSCAnalysis) -> None:
             y_position = comparison.request(WOODS_PLOT_PARAMS.y_data) - (
                 WOODS_PLOT_PARAMS.box_thickness / 2
             )
+
             colour_data = comparison.request(WOODS_PLOT_PARAMS.colour_data)
 
-            colour = colour_map.to_rgba(np.array([colour_data]))
+            colour = (
+                colour_map.to_rgba(np.array([colour_data]))
+                if comparison.is_significant
+                else analysis.colouring.insignificant
+            )
 
             rectangle_patch = mpl_patches.Rectangle(
                 xy=(comparison.start_residue, y_position),
                 width=len(comparison.sequence),
                 height=WOODS_PLOT_PARAMS.box_thickness,
                 facecolor=colour,
+                edgecolor="black",
+                linewidth=0.1,
             )
             patches.append(rectangle_patch)
 
-        ax.add_collection(mpl_collections.PatchCollection(patches))
+        ax.add_collection(mpl_collections.PatchCollection(patches, match_original=True))
+        ax.autoscale_view(scalex=False, scaley=True)
+        ax.axhline(0, linewidth=0.3, color="black", alpha=1)
     plt.show()
 
 
