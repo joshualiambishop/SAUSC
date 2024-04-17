@@ -2,7 +2,12 @@ from typing import Any, Optional
 
 import numpy as np
 import analysis_tools
-from data import CUMULATIVE_EXPOSURE_KEY, DataForVisualisation, FullSAUSCAnalysis, NormalisationMode
+from data import (
+    CUMULATIVE_EXPOSURE_KEY,
+    DataForVisualisation,
+    FullSAUSCAnalysis,
+    NormalisationMode,
+)
 from plotting_options import WOODS_PLOT_PARAMS
 
 try:
@@ -16,7 +21,6 @@ except ImportError as exc:
     ) from exc
 
 
-
 pretty_string_for: dict[Any, str] = {
     DataForVisualisation.UPTAKE_DIFFERENCE: "Uptake difference (Da)",
     DataForVisualisation.RELATIVE_UPTAKE_DIFFERENCE: """Relative uptake difference (%)""",
@@ -26,14 +30,18 @@ pretty_string_for: dict[Any, str] = {
 }
 
 
+def multi_line(string: str) -> str:
+    n_spaces = len(string.split(" ")) -1
+    # This is because the last one would be the unit
+    return string.replace(" ", "\n", n_spaces - 1)
+
+
 def draw_woods_plot(analysis: FullSAUSCAnalysis) -> None:
 
     fig, axes = plt.subplots(
         nrows=len(analysis.experimental_params.exposures)
         + 1,  # Extra for the cumulative
         ncols=1,
-        sharex=True,
-        sharey=False,
         dpi=WOODS_PLOT_PARAMS.dpi,
         layout="constrained",
         figsize=(WOODS_PLOT_PARAMS.scale, WOODS_PLOT_PARAMS.scale),
@@ -66,11 +74,6 @@ def draw_woods_plot(analysis: FullSAUSCAnalysis) -> None:
             loc="left",
         )
 
-        ax.set_xticks(
-            np.arange(analysis.experimental_params.max_residue + 1),
-            analysis.full_sequence,
-        )
-
         colour_map = (
             analysis.colouring.uptake_colourmap_with_symmetrical_normalisation(
                 analysis_tools.get_strongest_magnitude_of_type(
@@ -82,10 +85,12 @@ def draw_woods_plot(analysis: FullSAUSCAnalysis) -> None:
         )
 
         fig.colorbar(
-            colour_map, ax=ax, label=pretty_string_for[WOODS_PLOT_PARAMS.colour_data]
+            colour_map,
+            ax=ax,
+            label=multi_line(pretty_string_for[WOODS_PLOT_PARAMS.colour_data]),
         )
         ax.set(
-            ylabel=pretty_string_for[WOODS_PLOT_PARAMS.y_data],
+            ylabel=multi_line(pretty_string_for[WOODS_PLOT_PARAMS.y_data]),
             xlabel="Residue",
             xlim=(0, analysis.experimental_params.max_residue + 1),
         )
@@ -120,4 +125,3 @@ def draw_woods_plot(analysis: FullSAUSCAnalysis) -> None:
         ax.autoscale_view(scalex=False, scaley=True)
         ax.axhline(0, linewidth=0.3, color="black", alpha=1)
     plt.show()
-
