@@ -124,7 +124,7 @@ class Comparison(BaseFragment):
 
     @property
     def relative_uptake_difference(self) -> float:
-        return self.uptake_difference / self.max_deuterium_uptake
+        return (self.uptake_difference / self.max_deuterium_uptake) * 100
 
     def request(self, data_type: DataForVisualisation) -> float:
         if data_type == DataForVisualisation.UPTAKE_DIFFERENCE:
