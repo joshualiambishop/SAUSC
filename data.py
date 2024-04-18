@@ -13,6 +13,8 @@ import numpy.typing as npt
 class DataForVisualisation(enum.Enum):
     UPTAKE_DIFFERENCE = enum.auto()
     RELATIVE_UPTAKE_DIFFERENCE = enum.auto()
+    P_VALUE = enum.auto()
+    NEG_LOG_P = enum.auto()
 
 
 class NormalisationMode(enum.Enum):
@@ -127,14 +129,19 @@ class Comparison(BaseFragment):
         return (self.uptake_difference / self.max_deuterium_uptake) * 100
 
     def request(self, data_type: DataForVisualisation) -> float:
-        if data_type == DataForVisualisation.UPTAKE_DIFFERENCE:
-            return self.uptake_difference
-        elif data_type == DataForVisualisation.RELATIVE_UPTAKE_DIFFERENCE:
-            return self.relative_uptake_difference
-        else:
-            raise ValueError(
-                f"Cannot provide information for requested type {data_type}"
-            )
+        match data_type:
+            case DataForVisualisation.UPTAKE_DIFFERENCE:
+                return self.uptake_difference
+            case DataForVisualisation.RELATIVE_UPTAKE_DIFFERENCE:
+                return self.relative_uptake_difference
+            case DataForVisualisation.P_VALUE:
+                return self.p_value
+            case DataForVisualisation.NEG_LOG_P:
+                return self.neg_log_p
+            case _:
+                raise ValueError(
+                    f"Cannot provide information for requested type {data_type}"
+                )
 
     @classmethod
     def from_reference(

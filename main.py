@@ -92,3 +92,4 @@ if __name__ == "__main__":
     # data, params = load_state_data()
     full_analysis = SAUSC(r".\example_data\Cdstate.csv")
     figures.draw_woods_plot(full_analysis)
+    figures.draw_volcano_plot(full_analysis, annotate=False)
