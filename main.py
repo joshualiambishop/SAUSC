@@ -661,7 +661,7 @@ class ColourScheme:
     def uptake_colourmap_with_symmetrical_normalisation(
         self, value: float
     ) -> ScalarMappable:
-        assert value > 0, "Value for normalisation must be positive."
+        assert value >= 0, "Value for normalisation must be non-negative."
         normalisation = Normalize(vmin=-value, vmax=value)
         return ScalarMappable(norm=normalisation, cmap=self.uptake_colourmap)
 
@@ -1255,8 +1255,8 @@ def draw_volcano_plot(analysis: FullSAUSCAnalysis, annotate: bool, save: bool) -
     plt.show()
 
 
-GLOBAL_CUSTOM_COLOUR_INDEX = 0
-GLOBAL_SCENE_INDEX = 0
+GLOBAL_CUSTOM_COLOUR_INDEX = 1
+GLOBAL_SCENE_INDEX = 1
 
 if __name__ == "pymol":
 
@@ -1369,7 +1369,7 @@ if __name__ == "pymol":
         statistical_test: str = "HYBRID",
         protection_colourmap: str = "Blues",
         deprotection_colourmap: str = "Reds",
-        insignificant_colour: PymolTupleFloat = "(1.0, 1.0, 1.0)",
+        insignificant_colour: PymolTupleFloat = "(0.9, 0.9, 0.9)",
         no_coverage_colour: PymolTupleFloat = "(0.1, 0.1, 0.1)",
         normalisation_mode: PymolBool = "ACROSS_EXPOSURES",
     ):
