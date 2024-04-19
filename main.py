@@ -5,9 +5,8 @@ Correspondence: joshualiambishop@gmail.com
 import dataclasses
 import pathlib
 from tkinter import filedialog
-import tkinter as tk
 from typing import Any, Callable, Sequence, Type, TypeAlias, TypeVar, Optional, cast
-
+from datetime import datetime
 import numpy.typing as npt
 import numpy as np
 
@@ -35,12 +34,11 @@ if __name__ == "pymol":
     from pymol import cmd
 
 # Unfortunately to run a script in pymol and navigate it's virtual environment
-# everything must be defined within a single file.
+# everything must be defined within a single file. :(
 
 # For simplicity, a cumulative operation on all exposures are included as if it were a timepoint.
 # I've made this a constant simply for sanity.
 CUMULATIVE_EXPOSURE_KEY = "Cumulative"
-
 
 class DataForVisualisation(enum.Enum):
     UPTAKE_DIFFERENCE = enum.auto()
@@ -57,6 +55,65 @@ class NormalisationMode(enum.Enum):
     GLOBAL = (
         enum.auto()
     )  # A single universal colourmap, not recommended with cumulative as that'll naturally skew the colours, but the option is there
+
+
+FIGURE_SAVING_FORMATS: list[str] = [".png", ".svg"]
+
+
+# Figures and plotting
+@dataclasses.dataclass(frozen=True)
+class GenericFigureOptions:
+    dpi: float
+    scale: float
+
+
+@dataclasses.dataclass(frozen=True)
+class BaseVisualisationOptions(GenericFigureOptions):
+    y_data: DataForVisualisation
+    colour_data: DataForVisualisation
+
+
+@dataclasses.dataclass(frozen=True)
+class WoodsPlotOptions(BaseVisualisationOptions):
+    box_thickness: float  # As a percentage of the y axes
+
+    def __post_init__(self) -> None:
+        enforce_between_0_and_1(self.box_thickness)
+
+
+@dataclasses.dataclass(frozen=True)
+class VolcanoPlotOptions(BaseVisualisationOptions):
+    x_data: DataForVisualisation
+    circle_size: float
+    circle_transparency: float
+    annotation_fontsize: float
+
+
+#
+#
+# If for any reason you want to customise the fine details of the plots
+# please do so in the code here:
+#
+#
+
+WOODS_PLOT_PARAMS = WoodsPlotOptions(
+    dpi=100.0,
+    scale=6.0,
+    y_data=DataForVisualisation.UPTAKE_DIFFERENCE,
+    colour_data=DataForVisualisation.RELATIVE_UPTAKE_DIFFERENCE,
+    box_thickness=0.07,
+)
+
+VOLCANO_PLOT_PARAMS = VolcanoPlotOptions(
+    dpi=150.0,
+    scale=3.0,
+    x_data=DataForVisualisation.UPTAKE_DIFFERENCE,
+    y_data=DataForVisualisation.NEG_LOG_P,
+    colour_data=DataForVisualisation.RELATIVE_UPTAKE_DIFFERENCE,
+    circle_size=1.0,
+    circle_transparency=0.7,
+    annotation_fontsize=5.0,
+)
 
 
 class StatisticalTestType(enum.Enum):
@@ -76,6 +133,7 @@ class ResidueType(enum.Enum):
 
 SameAsInput = TypeVar("SameAsInput")
 SameAsInputEnum = TypeVar("SameAsInputEnum", bound=enum.Enum)
+
 
 ### General utilities ###
 def enforce_between_0_and_1(value: float) -> None:
@@ -101,7 +159,9 @@ def is_floatable(string: str) -> bool:
         return False
 
 
-def find_matching_enum_from_meta(meta: Type[SameAsInputEnum], query: str) -> SameAsInputEnum:
+def find_matching_enum_from_meta(
+    meta: Type[SameAsInputEnum], query: str
+) -> SameAsInputEnum:
     for possible_match in meta:
         name: str = possible_match.name
         if name.lower() == query.lower():
@@ -135,6 +195,7 @@ def file_browser() -> Optional[str]:
 
     check_valid_hdx_file(results_file)
     return results_file
+
 
 # Pymol passes all arguments to functions as strings
 # so here is a simple conversion mechanism
@@ -527,59 +588,6 @@ def load_state_data(
     return (state_data, experimental_parameters)
 
 
-# Figures and plotting
-@dataclasses.dataclass(frozen=True)
-class GenericFigureOptions:
-    dpi: float
-    scale: float
-
-
-@dataclasses.dataclass(frozen=True)
-class BaseVisualisationOptions(GenericFigureOptions):
-    y_data: DataForVisualisation
-    colour_data: DataForVisualisation
-
-
-@dataclasses.dataclass(frozen=True)
-class WoodsPlotOptions(BaseVisualisationOptions):
-    box_thickness: float  # As a percentage of the y axes
-
-    def __post_init__(self) -> None:
-        enforce_between_0_and_1(self.box_thickness)
-
-
-@dataclasses.dataclass(frozen=True)
-class VolcanoPlotOptions(BaseVisualisationOptions):
-    x_data: DataForVisualisation
-    circle_size: float
-    circle_transparency: float
-
-
-#
-#
-# If for any reason you want to customise the fine details of the plots
-# please do so in the code here:
-#
-#
-
-WOODS_PLOT_PARAMS = WoodsPlotOptions(
-    dpi=150.0,
-    scale=6.0,
-    y_data=DataForVisualisation.UPTAKE_DIFFERENCE,
-    colour_data=DataForVisualisation.RELATIVE_UPTAKE_DIFFERENCE,
-    box_thickness=0.07,
-)
-VOLCANO_PLOT_PARAMS = VolcanoPlotOptions(
-    dpi=150.0,
-    scale=3.0,
-    x_data=DataForVisualisation.UPTAKE_DIFFERENCE,
-    y_data=DataForVisualisation.NEG_LOG_P,
-    colour_data=DataForVisualisation.RELATIVE_UPTAKE_DIFFERENCE,
-    circle_size=1.0,
-    circle_transparency=0.7,
-)
-
-
 pretty_string_for: dict[enum.Enum, str] = {
     DataForVisualisation.UPTAKE_DIFFERENCE: "Uptake difference (Da)",
     DataForVisualisation.RELATIVE_UPTAKE_DIFFERENCE: """Relative uptake difference (%)""",
@@ -870,6 +878,7 @@ class FullSAUSCAnalysis:
     colouring: ColourScheme
     global_standard_error_mean: float
     full_sequence: str
+    filepath: pathlib.Path
 
 
 def run_SAUSC_from_path(
@@ -887,8 +896,12 @@ def run_SAUSC_from_path(
     user_params = UserParameters(
         n_repeats=n_repeats,
         confidence_interval=confidence_interval,
-        normalisation_type=find_matching_enum_from_meta(NormalisationMode, query=normalisation_mode),
-        statistical_test=find_matching_enum_from_meta(StatisticalTestType, query=statistical_test),
+        normalisation_type=find_matching_enum_from_meta(
+            NormalisationMode, query=normalisation_mode
+        ),
+        statistical_test=find_matching_enum_from_meta(
+            StatisticalTestType, query=statistical_test
+        ),
     )
     colour_scheme = ColourScheme(
         uptake_colourmap=make_diverging_colormap(
@@ -902,7 +915,11 @@ def run_SAUSC_from_path(
 
     global_sem = pooled_standard_error_mean(
         stdevs=np.array(
-            [uptake.stdev for data in loaded_results for uptake in data.exposures.values()]
+            [
+                uptake.stdev
+                for data in loaded_results
+                for uptake in data.exposures.values()
+            ]
         ),
         n_repeats=user_params.n_repeats,
     )
@@ -947,6 +964,7 @@ def run_SAUSC_from_path(
         colouring=colour_scheme,
         full_sequence=protein_sequence,
         global_standard_error_mean=global_sem,
+        filepath=pathlib.Path(filepath),
     )
     return full_analysis
 
@@ -1055,7 +1073,7 @@ def set_up_base_figure(
     return BaseFigure(fig=fig, axes=axes, colourmaps=axes_colourmaps)
 
 
-def draw_woods_plot(analysis: FullSAUSCAnalysis) -> None:
+def draw_woods_plot(analysis: FullSAUSCAnalysis, save: bool) -> None:
     base_figure = set_up_base_figure(
         analysis=analysis,
         plotting_params=WOODS_PLOT_PARAMS,
@@ -1111,10 +1129,19 @@ def draw_woods_plot(analysis: FullSAUSCAnalysis) -> None:
         )
         base_figure.axes[index].autoscale_view(scalex=False, scaley=True)
         base_figure.axes[index].axhline(0, linewidth=0.3, color="black", alpha=1)
+
+    if save:
+        figure_folder = analysis.filepath.parent / "SAUSC Figures"
+        figure_folder.mkdir(parents=True, exist_ok=True)
+        for extension in FIGURE_SAVING_FORMATS:
+            plt.savefig(
+                fname=f"Woods plot {analysis.filepath.name} {datetime.now()}{extension}"
+            )
+
     plt.show()
 
 
-def draw_volcano_plot(analysis: FullSAUSCAnalysis, annotate: bool) -> None:
+def draw_volcano_plot(analysis: FullSAUSCAnalysis, annotate: bool, save: bool) -> None:
 
     base_figure = set_up_base_figure(
         analysis=analysis,
@@ -1132,9 +1159,11 @@ def draw_volcano_plot(analysis: FullSAUSCAnalysis, annotate: bool) -> None:
             xlabel=pretty_string_for[VOLCANO_PLOT_PARAMS.x_data],
         )
 
+        x_values = [s.request(VOLCANO_PLOT_PARAMS.x_data) for s in sequence_comparisons]
+        y_values = [s.request(VOLCANO_PLOT_PARAMS.y_data) for s in sequence_comparisons]
         base_figure.axes[index].scatter(
-            x=[s.request(VOLCANO_PLOT_PARAMS.x_data) for s in sequence_comparisons],
-            y=[s.request(VOLCANO_PLOT_PARAMS.y_data) for s in sequence_comparisons],
+            x=x_values,
+            y=y_values,
             c=[
                 (
                     base_figure.colourmaps[index].to_rgba(
@@ -1148,6 +1177,25 @@ def draw_volcano_plot(analysis: FullSAUSCAnalysis, annotate: bool) -> None:
             s=VOLCANO_PLOT_PARAMS.circle_size,
             alpha=VOLCANO_PLOT_PARAMS.circle_transparency,
         )
+
+        if annotate:
+            annotations = [
+                f"{s.start_residue} - {s.end_residue}" for s in sequence_comparisons
+            ]
+            for seq_index, annotation in enumerate(annotations):
+                base_figure.axes[index].annotate(
+                    annotation,
+                    (x_values[seq_index], y_values[seq_index]),
+                    fontsize=VOLCANO_PLOT_PARAMS.annotation_fontsize,
+                )
+    if save:
+        figure_folder = analysis.filepath.parent / "SAUSC Figures"
+        figure_folder.mkdir(parents=True, exist_ok=True)
+        for extension in FIGURE_SAVING_FORMATS:
+            plt.savefig(
+                fname=f"Volcano plot {analysis.filepath.name} {datetime.now()}{extension}"
+            )
+
     plt.show()
 
 
@@ -1155,6 +1203,7 @@ GLOBAL_CUSTOM_COLOUR_INDEX = 0
 
 
 if __name__ == "pymol":
+
     def register_colours(colours: list[Colour]) -> dict[Colour, str]:
         global GLOBAL_CUSTOM_COLOUR_INDEX
         colour_to_name: dict[Colour, str] = {}
@@ -1214,7 +1263,9 @@ if __name__ == "pymol":
                     case ResidueType.AVERAGED:
                         colours[index] = colour_map.to_rgba(
                             residue_data.uptake_difference
-                        )[:-1] # No alpha
+                        )[
+                            :-1
+                        ]  # No alpha
                     case ResidueType.ALL_INSIGNIFICANT:
                         colours[index] = analysis.colouring.insignificant
                     case ResidueType.NOT_COVERED:
@@ -1225,8 +1276,11 @@ if __name__ == "pymol":
             for index, colour in enumerate(colours):
                 cmd.color(colour_to_name[colour], selection=f"res {index}")
 
-
-            exposure_desc = "Cumulative exposure" if exposure == CUMULATIVE_EXPOSURE_KEY else f"Exposure {exposure} minutes"
+            exposure_desc = (
+                "Cumulative exposure"
+                if exposure == CUMULATIVE_EXPOSURE_KEY
+                else f"Exposure {exposure} minutes"
+            )
             scene_description = f"""
             {exposure_desc}
             {pretty_string_for[analysis.user_params.normalisation_type]}
@@ -1234,9 +1288,12 @@ if __name__ == "pymol":
             Statistical test = {pretty_string_for[analysis.user_params.statistical_test]}
             """
 
-            
-
-            cmd.scene(key=exposure_desc, action="store", message=scene_description, color=1)
+            cmd.scene(
+                key="(SAUSC) " + exposure_desc,
+                action="store",
+                message=scene_description,
+                color=1,
+            )
 
     @cmd.extend
     def SAUSC(
@@ -1298,26 +1355,29 @@ if __name__ == "pymol":
         draw_uptake_on_scenes(full_analysis)
 
         @cmd.extend
-        def woods_plot():
-            draw_woods_plot(full_analysis)
+        def woods_plot(save: PymolBool = "False"):
+            draw_woods_plot(full_analysis, save=convert_from_pymol(save, bool))
 
         @cmd.extend
-        def volcano_plot():
-            draw_volcano_plot(full_analysis)
-
+        def volcano_plot(annotate: PymolBool = "True", save: PymolBool = "False"):
+            draw_volcano_plot(
+                full_analysis,
+                annotate=convert_from_pymol(annotate, bool),
+                save=convert_from_pymol(save, bool),
+            )
 
 
 if __name__ == "__main__":
     full_analysis = run_SAUSC_from_path(
-            filepath=r".\example_data\Cdstate.csv",
-            n_repeats=3,
-            confidence_interval=0.95,
-            statistical_test="HYBRID",
-            protection_colourmap="Blues",
-            deprotection_colourmap="Reds",
-            insignificant_colour=(0.9, 0.9, 0.9),
-            no_coverage_colour=(0.1, 0.1, 0.1),
-            normalisation_mode="ACROSS_EXPOSURES",
-        )
-    draw_woods_plot(full_analysis)
-    draw_volcano_plot(full_analysis, annotate=False)
+        filepath=r".\example_data\Cdstate.csv",
+        n_repeats=3,
+        confidence_interval=0.95,
+        statistical_test="HYBRID",
+        protection_colourmap="Blues",
+        deprotection_colourmap="Reds",
+        insignificant_colour=(0.9, 0.9, 0.9),
+        no_coverage_colour=(0.1, 0.1, 0.1),
+        normalisation_mode="ACROSS_EXPOSURES",
+    )
+    draw_woods_plot(full_analysis, save=False)
+    draw_volcano_plot(full_analysis, annotate=True, save=False)
