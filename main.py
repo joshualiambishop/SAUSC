@@ -1004,6 +1004,9 @@ class BaseFigure:
             )
 
         self.fig.savefig(str(filepath_for_saving))
+        print(
+            f"Successfully saved {description.lower()} next to file at {filepath_for_saving}"
+        )
 
 
 def set_up_base_figure(
@@ -1158,11 +1161,11 @@ def draw_woods_plot(analysis: FullSAUSCAnalysis, save: bool) -> None:
     if save:
         for extension in FIGURE_SAVING_FORMATS:
             base_figure.save(
-                description = "Woods plot",
+                description="Woods plot",
                 extension=extension,
-                analysis_filepath = analysis.filepath
+                analysis_filepath=analysis.filepath,
             )
-            
+
     plt.show()
 
 
@@ -1180,9 +1183,7 @@ def draw_volcano_plot(analysis: FullSAUSCAnalysis, annotate: bool, save: bool) -
 
         sequence_comparisons = analysis.sequence_comparisons[exposure]
 
-        base_figure.axes[index].set(
-            xlabel=pretty_string_for[VOLCANO_PLOT_PARAMS.x_data],
-        )
+       
 
         x_values = [s.request(VOLCANO_PLOT_PARAMS.x_data) for s in sequence_comparisons]
         y_values = [s.request(VOLCANO_PLOT_PARAMS.y_data) for s in sequence_comparisons]
@@ -1202,23 +1203,31 @@ def draw_volcano_plot(analysis: FullSAUSCAnalysis, annotate: bool, save: bool) -
             s=VOLCANO_PLOT_PARAMS.circle_size,
             alpha=VOLCANO_PLOT_PARAMS.circle_transparency,
         )
+        # Volcano plot should be symmetrical about x
+        largest_xscale = np.abs(base_figure.axes[index].get_xlim()).max()
+        base_figure.axes[index].set(
+            xlabel=pretty_string_for[VOLCANO_PLOT_PARAMS.x_data],
+            xlim = (-largest_xscale, largest_xscale)
+        )
 
         if annotate:
             annotations = [
                 f"{s.start_residue} - {s.end_residue}" for s in sequence_comparisons
             ]
             for seq_index, annotation in enumerate(annotations):
-                base_figure.axes[index].annotate(
-                    annotation,
-                    (x_values[seq_index], y_values[seq_index]),
-                    fontsize=VOLCANO_PLOT_PARAMS.annotation_fontsize,
-                )
+                if sequence_comparisons[index].is_significant:
+                    base_figure.axes[index].annotate(
+                        annotation,
+                        (x_values[seq_index], y_values[seq_index]),
+                        fontsize=VOLCANO_PLOT_PARAMS.annotation_fontsize,
+                    )
+
     if save:
         for extension in FIGURE_SAVING_FORMATS:
             base_figure.save(
-                description = "Woods plot",
+                description="Volcano plot",
                 extension=extension,
-                analysis_filepath = analysis.filepath
+                analysis_filepath=analysis.filepath,
             )
 
     plt.show()
