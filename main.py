@@ -149,7 +149,7 @@ WOODS_PLOT_PARAMS = WoodsPlotOptions(
     colour_data=DataForVisualisation.RELATIVE_UPTAKE_DIFFERENCE,
     box_thickness=0.07,
     statistical_linewidth=0.1,
-    statistical_linecolour="black"
+    statistical_linecolour="black",
 )
 
 VOLCANO_PLOT_PARAMS = VolcanoPlotOptions(
@@ -158,21 +158,23 @@ VOLCANO_PLOT_PARAMS = VolcanoPlotOptions(
     x_data=DataForVisualisation.UPTAKE_DIFFERENCE,
     y_data=DataForVisualisation.NEG_LOG_P,
     colour_data=DataForVisualisation.RELATIVE_UPTAKE_DIFFERENCE,
-    circle_size=15.0,
+    circle_size=13.0,
     circle_transparency=0.8,
-    annotation_fontsize=6.0,
-    statistical_linewidth=0.1,
-    statistical_linecolour="black"
+    annotation_fontsize=5.0,
+    statistical_linewidth=0.5,
+    statistical_linecolour="black",
 )
 
 
-class StatisticalTestType(enum.Enum):
+class StatisticalTestType(enum.IntFlag):
     """
-    Type of statistical test used to perform comparisons
+    Type of statistical test used to perform comparisons, IntFlag for bitmasking operations
+    and combinations.
     """
 
-    T_TEST = enum.auto()
-    HYBRID = enum.auto()
+    T_TEST = 1
+    GLOBAL_THRESHOLD = 2
+    HYBRID = 3
 
 
 class ResidueType(enum.Enum):
@@ -609,6 +611,7 @@ pretty_string_for: dict[enum.Enum, str] = {
     NormalisationMode.ACROSS_EXPOSURES: "Normalised across timepoints",
     NormalisationMode.GLOBAL: "Normalised globally",
     StatisticalTestType.T_TEST: "Welch's T-test",
+    StatisticalTestType.GLOBAL_THRESHOLD: "Global threshold", #TODO: better name
     StatisticalTestType.HYBRID: "Hybrid test",
 }
 
@@ -714,31 +717,28 @@ def compare_uptakes(
     default: Uptake,
     other: Uptake,
     params: UserParameters,
-    SEM_for_hybrid_test: Optional[float] = None,
+    global_threshold: float,
 ) -> tuple[float, float, bool]:
 
     uptake_difference = other.mean - default.mean
 
-    p_value = stats.ttest_ind_from_stats(
-        mean1=default.mean,
-        std1=default.stdev,
-        nobs1=params.n_repeats,
-        mean2=other.mean,
-        std2=other.stdev,
-        nobs2=params.n_repeats,
-    ).pvalue
+    significant = True
 
-    significant = p_value < (1 - params.confidence_interval)
+    if params.statistical_test | StatisticalTestType.T_TEST:
 
-    if params.statistical_test == StatisticalTestType.HYBRID:
-        assert (
-            SEM_for_hybrid_test is not None
-        ), "Must provide the standard error of the mean to perform a hybrid test."
-        degrees_of_freedom = (params.n_repeats * 2) - 2
-        t_critical = stats.t.ppf(params.confidence_interval, degrees_of_freedom)
-        globally_significant = abs(uptake_difference) > (
-            SEM_for_hybrid_test * t_critical
-        )
+        p_value = stats.ttest_ind_from_stats(
+            mean1=default.mean,
+            std1=default.stdev,
+            nobs1=params.n_repeats,
+            mean2=other.mean,
+            std2=other.stdev,
+            nobs2=params.n_repeats,
+        ).pvalue
+
+        significant &= p_value < (1 - params.confidence_interval)
+
+    if params.statistical_test | StatisticalTestType.GLOBAL_THRESHOLD:
+        globally_significant = abs(uptake_difference) > global_threshold
         significant &= globally_significant
 
     return uptake_difference, p_value, significant
@@ -748,7 +748,7 @@ def compare_states(
     default: StateData,
     other: StateData,
     params: UserParameters,
-    SEM_for_hybrid_test: float,
+    global_threshold: float,
 ) -> dict[str, Comparison]:
 
     if not default.is_same_fragment(other):
@@ -771,7 +771,7 @@ def compare_states(
             default=default_uptake,
             other=other_uptake,
             params=params,
-            SEM_for_hybrid_test=SEM_for_hybrid_test,
+            global_threshold=global_threshold,
         )
 
         comparison = Comparison.from_reference(
@@ -888,7 +888,7 @@ class FullSAUSCAnalysis:
     sequence_comparisons: dict[str, list[Comparison]]
     residue_comparisons: dict[str, list[SingleResidueComparison]]
     colouring: ColourScheme
-    global_standard_error_mean: float
+    global_threshold: float
     full_sequence: str
     filepath: pathlib.Path
 
@@ -935,6 +935,9 @@ def run_SAUSC_from_path(
         ),
         n_repeats=user_params.n_repeats,
     )
+    degrees_of_freedom = (n_repeats * 2) - 2
+    t_critical = stats.t.ppf(confidence_interval, degrees_of_freedom)
+    global_threshold = global_sem * t_critical
 
     # Hopefully a user will call the default state "default"...
     if "default" in experimental_params.states[0].lower():
@@ -951,7 +954,9 @@ def run_SAUSC_from_path(
         default_states, other_states = other_states, default_states
 
     _comparisons: list[dict[str, Comparison]] = [
-        compare_states(default, other, user_params, global_sem)
+        compare_states(
+            default, other, params=user_params, global_threshold=global_threshold
+        )
         for default, other in zip(default_states, other_states)
     ]
 
@@ -975,7 +980,7 @@ def run_SAUSC_from_path(
         residue_comparisons=single_residue_comparisons,
         colouring=colour_scheme,
         full_sequence=protein_sequence,
-        global_standard_error_mean=global_sem,
+        global_threshold=global_threshold,
         filepath=pathlib.Path(filepath),
     )
     return full_analysis
@@ -1183,11 +1188,11 @@ def draw_volcano_plot(analysis: FullSAUSCAnalysis, annotate: bool, save: bool) -
     )
 
     statistical_boundary_params = {
-        "color": VOLCANO_PLOT_PARAMS.statistical_linecolour, 
+        "color": VOLCANO_PLOT_PARAMS.statistical_linecolour,
         "linewidth": VOLCANO_PLOT_PARAMS.statistical_linewidth,
-        "linestyle": "--", 
-        "zorder": -1
-        }
+        "linestyle": "--",
+        "zorder": -1,
+    }
 
     for index, exposure in enumerate(
         (*analysis.experimental_params.exposures, CUMULATIVE_EXPOSURE_KEY)
@@ -1199,13 +1204,18 @@ def draw_volcano_plot(analysis: FullSAUSCAnalysis, annotate: bool, save: bool) -
             -np.log10(1 - analysis.user_params.confidence_interval),
             **statistical_boundary_params,
         )
-        if VOLCANO_PLOT_PARAMS.x_data == DataForVisualisation.UPTAKE_DIFFERENCE:
-            base_figure.axes[index].axvline(
-                analysis.global_standard_error_mean, **statistical_boundary_params
+        if (
+            VOLCANO_PLOT_PARAMS.x_data == DataForVisualisation.UPTAKE_DIFFERENCE
+            and analysis.user_params.statistical_test == StatisticalTestType.HYBRID
+        ):
+            threshold = (
+                analysis.global_threshold
+                if exposure != CUMULATIVE_EXPOSURE_KEY
+                else analysis.global_threshold
+                * len(analysis.experimental_params.exposures)
             )
-            base_figure.axes[index].axvline(
-                -analysis.global_standard_error_mean, **statistical_boundary_params
-            )
+            base_figure.axes[index].axvline(threshold, **statistical_boundary_params)
+            base_figure.axes[index].axvline(-threshold, **statistical_boundary_params)
 
         x_values = [s.request(VOLCANO_PLOT_PARAMS.x_data) for s in sequence_comparisons]
         y_values = [s.request(VOLCANO_PLOT_PARAMS.y_data) for s in sequence_comparisons]
