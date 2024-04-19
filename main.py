@@ -1156,7 +1156,7 @@ GLOBAL_CUSTOM_COLOUR_INDEX = 0
 
 if __name__ == "pymol":
     def register_colours(colours: list[Colour]) -> dict[Colour, str]:
-
+        global GLOBAL_CUSTOM_COLOUR_INDEX
         colour_to_name: dict[Colour, str] = {}
 
         for colour in colours:
@@ -1164,7 +1164,9 @@ if __name__ == "pymol":
             GLOBAL_CUSTOM_COLOUR_INDEX += 1
 
         for colour, name in colour_to_name.items():
-            cmd.set_color(name=name, rgb=colour)
+            print(f"Setting colour {colour} as {name}..")
+            cmd.set_color(name=name, rgb=list(colour))
+            print(f"Successfully set {colour} as {name}")
 
         return colour_to_name
 
@@ -1212,7 +1214,7 @@ if __name__ == "pymol":
                     case ResidueType.AVERAGED:
                         colours[index] = colour_map.to_rgba(
                             residue_data.uptake_difference
-                        )
+                        )[:-1] # No alpha
                     case ResidueType.ALL_INSIGNIFICANT:
                         colours[index] = analysis.colouring.insignificant
                     case ResidueType.NOT_COVERED:
@@ -1223,14 +1225,18 @@ if __name__ == "pymol":
             for index, colour in enumerate(colours):
                 cmd.color(colour_to_name[colour], selection=f"res {index}")
 
+
+            exposure_desc = "Cumulative exposure" if exposure == CUMULATIVE_EXPOSURE_KEY else f"Exposure {exposure} minutes"
             scene_description = f"""
-            Exposure {exposure}
+            {exposure_desc}
             {pretty_string_for[analysis.user_params.normalisation_type]}
             Confidence interval = {analysis.user_params.confidence_interval*100}%
             Statistical test = {pretty_string_for[analysis.user_params.statistical_test]}
             """
 
-            cmd.scene(key="new", action="store", message=scene_description, color=1)
+            
+
+            cmd.scene(key=exposure_desc, action="store", message=scene_description, color=1)
 
     @cmd.extend
     def SAUSC(
