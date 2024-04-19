@@ -1256,7 +1256,7 @@ def draw_volcano_plot(analysis: FullSAUSCAnalysis, annotate: bool, save: bool) -
 
 
 GLOBAL_CUSTOM_COLOUR_INDEX = 0
-
+GLOBAL_SCENE_INDEX = 0
 
 if __name__ == "pymol":
 
@@ -1284,7 +1284,7 @@ if __name__ == "pymol":
         return colour_to_name
 
     def draw_uptake_on_scenes(analysis: FullSAUSCAnalysis) -> None:
-
+        global GLOBAL_SCENE_INDEX
         global_cmap: Optional[ScalarMappable] = None
 
         # Even though we are colouring by single residues, we can still define the colourmap
@@ -1353,11 +1353,13 @@ if __name__ == "pymol":
             """
 
             cmd.scene(
-                key="(SAUSC) " + exposure_desc,
+                key=f"(SAUSC {GLOBAL_SCENE_INDEX}) " + exposure_desc,
                 action="store",
                 message=scene_description,
                 color=1,
             )
+
+            GLOBAL_SCENE_INDEX += 1
 
     @cmd.extend
     def SAUSC(
