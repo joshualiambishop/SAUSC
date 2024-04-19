@@ -1136,7 +1136,7 @@ def draw_woods_plot(analysis: FullSAUSCAnalysis, save: bool) -> None:
         figure_folder = analysis.filepath.parent / "SAUSC Figures"
         figure_folder.mkdir(parents=True, exist_ok=True)
         for extension in FIGURE_SAVING_FORMATS:
-            plt.savefig(
+            base_figure.fig.savefig(
                 fname=f"Woods plot {analysis.filepath.name} {datetime.now().strftime('%Y_%m_%d %H_%M')}{extension}"
             )
 
@@ -1194,7 +1194,7 @@ def draw_volcano_plot(analysis: FullSAUSCAnalysis, annotate: bool, save: bool) -
         figure_folder = analysis.filepath.parent / "SAUSC Figures"
         figure_folder.mkdir(parents=True, exist_ok=True)
         for extension in FIGURE_SAVING_FORMATS:
-            plt.savefig(
+            base_figure.fig.savefig(
                 fname=f"Volcano plot {analysis.filepath.name} {datetime.now().strftime('%Y_%m_%d %H_%M')}{extension}"
             )
 
