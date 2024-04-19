@@ -40,6 +40,10 @@ if __name__ == "pymol":
 # I've made this a constant simply for sanity.
 CUMULATIVE_EXPOSURE_KEY = "Cumulative"
 
+SameAsInput = TypeVar("SameAsInput")
+SameAsInputEnum = TypeVar("SameAsInputEnum", bound=enum.Enum)
+
+
 class DataForVisualisation(enum.Enum):
     UPTAKE_DIFFERENCE = enum.auto()
     RELATIVE_UPTAKE_DIFFERENCE = enum.auto()
@@ -59,6 +63,41 @@ class NormalisationMode(enum.Enum):
 
 FIGURE_SAVING_FORMATS: list[str] = [".png", ".svg"]
 
+### General utilities ###
+def enforce_between_0_and_1(value: float) -> None:
+    if not (0 <= value <= 1):
+        raise ValueError(f"Value {value} must be between 0 and 1")
+
+
+def convert_percentage_if_necessary(value: float) -> float:
+    """
+    If a number is above 1, divide it by 100.
+    """
+    if value <= 1:
+        return value
+    else:
+        return value / 100
+
+
+def is_floatable(string: str) -> bool:
+    try:
+        float(string)
+        return True
+    except ValueError:
+        return False
+
+
+def find_matching_enum_from_meta(
+    meta: Type[SameAsInputEnum], query: str
+) -> SameAsInputEnum:
+    for possible_match in meta:
+        name: str = possible_match.name
+        if name.lower() == query.lower():
+            return possible_match
+    raise ValueError(f"{query} not found in {enum}.")
+
+def warn_SAUSC_not_run() -> None:
+    raise Exception("Cannot perform requested action - SAUSC has not been run on any data")
 
 # Figures and plotting
 @dataclasses.dataclass(frozen=True)
@@ -130,43 +169,6 @@ class ResidueType(enum.Enum):
     ALL_INSIGNIFICANT = enum.auto()
     NOT_COVERED = enum.auto()
 
-
-SameAsInput = TypeVar("SameAsInput")
-SameAsInputEnum = TypeVar("SameAsInputEnum", bound=enum.Enum)
-
-
-### General utilities ###
-def enforce_between_0_and_1(value: float) -> None:
-    if not (0 <= value <= 1):
-        raise ValueError(f"Value {value} must be between 0 and 1")
-
-
-def convert_percentage_if_necessary(value: float) -> float:
-    """
-    If a number is above 1, divide it by 100.
-    """
-    if value <= 1:
-        return value
-    else:
-        return value / 100
-
-
-def is_floatable(string: str) -> bool:
-    try:
-        float(string)
-        return True
-    except ValueError:
-        return False
-
-
-def find_matching_enum_from_meta(
-    meta: Type[SameAsInputEnum], query: str
-) -> SameAsInputEnum:
-    for possible_match in meta:
-        name: str = possible_match.name
-        if name.lower() == query.lower():
-            return possible_match
-    raise ValueError(f"{query} not found in {enum}.")
 
 
 ### File browsing ###
@@ -1135,7 +1137,7 @@ def draw_woods_plot(analysis: FullSAUSCAnalysis, save: bool) -> None:
         figure_folder.mkdir(parents=True, exist_ok=True)
         for extension in FIGURE_SAVING_FORMATS:
             plt.savefig(
-                fname=f"Woods plot {analysis.filepath.name} {datetime.now()}{extension}"
+                fname=f"Woods plot {analysis.filepath.name} {datetime.now().strftime('%Y_%m_%d %H_%M')}{extension}"
             )
 
     plt.show()
@@ -1193,7 +1195,7 @@ def draw_volcano_plot(analysis: FullSAUSCAnalysis, annotate: bool, save: bool) -
         figure_folder.mkdir(parents=True, exist_ok=True)
         for extension in FIGURE_SAVING_FORMATS:
             plt.savefig(
-                fname=f"Volcano plot {analysis.filepath.name} {datetime.now()}{extension}"
+                fname=f"Volcano plot {analysis.filepath.name} {datetime.now().strftime('%Y_%m_%d %H_%M')}{extension}"
             )
 
     plt.show()
@@ -1204,6 +1206,16 @@ GLOBAL_CUSTOM_COLOUR_INDEX = 0
 
 if __name__ == "pymol":
 
+    # Allow the user to run a function after preloading SAUSC, but warn in the case
+    # the function hasn't actually been run
+    @cmd.extend
+    def woods_plot(save: PymolBool = "False") -> None:
+        warn_SAUSC_not_run()
+    
+    @cmd.extend
+    def volcano_plot(save: PymolBool = "False", annotate: PymolBool = "True") -> None:
+        warn_SAUSC_not_run()
+
     def register_colours(colours: list[Colour]) -> dict[Colour, str]:
         global GLOBAL_CUSTOM_COLOUR_INDEX
         colour_to_name: dict[Colour, str] = {}
@@ -1213,9 +1225,7 @@ if __name__ == "pymol":
             GLOBAL_CUSTOM_COLOUR_INDEX += 1
 
         for colour, name in colour_to_name.items():
-            print(f"Setting colour {colour} as {name}..")
             cmd.set_color(name=name, rgb=list(colour))
-            print(f"Successfully set {colour} as {name}")
 
         return colour_to_name
 
