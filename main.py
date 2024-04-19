@@ -115,6 +115,8 @@ class GenericFigureOptions:
 class BaseVisualisationOptions(GenericFigureOptions):
     y_data: DataForVisualisation
     colour_data: DataForVisualisation
+    statistical_linewidth: float
+    statistical_linecolour: str
 
 
 @dataclasses.dataclass(frozen=True)
@@ -146,17 +148,21 @@ WOODS_PLOT_PARAMS = WoodsPlotOptions(
     y_data=DataForVisualisation.UPTAKE_DIFFERENCE,
     colour_data=DataForVisualisation.RELATIVE_UPTAKE_DIFFERENCE,
     box_thickness=0.07,
+    statistical_linewidth=0.1,
+    statistical_linecolour="black"
 )
 
 VOLCANO_PLOT_PARAMS = VolcanoPlotOptions(
-    dpi=150.0,
-    scale=3.0,
+    dpi=100.0,
+    scale=4.0,
     x_data=DataForVisualisation.UPTAKE_DIFFERENCE,
     y_data=DataForVisualisation.NEG_LOG_P,
     colour_data=DataForVisualisation.RELATIVE_UPTAKE_DIFFERENCE,
-    circle_size=1.0,
-    circle_transparency=0.7,
-    annotation_fontsize=5.0,
+    circle_size=15.0,
+    circle_transparency=0.8,
+    annotation_fontsize=6.0,
+    statistical_linewidth=0.1,
+    statistical_linecolour="black"
 )
 
 
@@ -1176,7 +1182,12 @@ def draw_volcano_plot(analysis: FullSAUSCAnalysis, annotate: bool, save: bool) -
         over_rows=False,
     )
 
-    statistical_boundary_params = {"color": "black", "linestyle": "--", "zorder": -1}
+    statistical_boundary_params = {
+        "color": VOLCANO_PLOT_PARAMS.statistical_linecolour, 
+        "linewidth": VOLCANO_PLOT_PARAMS.statistical_linewidth,
+        "linestyle": "--", 
+        "zorder": -1
+        }
 
     for index, exposure in enumerate(
         (*analysis.experimental_params.exposures, CUMULATIVE_EXPOSURE_KEY)
