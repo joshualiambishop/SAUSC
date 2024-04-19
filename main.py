@@ -63,6 +63,7 @@ class NormalisationMode(enum.Enum):
 
 FIGURE_SAVING_FORMATS: list[str] = [".png", ".svg"]
 
+
 ### General utilities ###
 def enforce_between_0_and_1(value: float) -> None:
     if not (0 <= value <= 1):
@@ -96,8 +97,12 @@ def find_matching_enum_from_meta(
             return possible_match
     raise ValueError(f"{query} not found in {enum}.")
 
+
 def warn_SAUSC_not_run() -> None:
-    raise Exception("Cannot perform requested action - SAUSC has not been run on any data")
+    raise Exception(
+        "Cannot perform requested action - SAUSC has not been run on any data"
+    )
+
 
 # Figures and plotting
 @dataclasses.dataclass(frozen=True)
@@ -168,7 +173,6 @@ class ResidueType(enum.Enum):
     AVERAGED = enum.auto()
     ALL_INSIGNIFICANT = enum.auto()
     NOT_COVERED = enum.auto()
-
 
 
 ### File browsing ###
@@ -982,6 +986,25 @@ class BaseFigure:
             self.colourmaps
         ), "Must have a colourmap deifned for each axis."
 
+    def save(
+        self, description: str, extension: str, analysis_filepath: pathlib.Path
+    ) -> None:
+        assert extension.startswith(
+            "."
+        ), f"{extension} is an unsuitable file extension, must begin with ."
+        figure_folder = analysis_filepath.parent / "SAUSC Figures"
+        figure_folder.mkdir(parents=True, exist_ok=True)
+        filepath_for_saving = (
+            figure_folder
+            / f"{analysis_filepath.stem} {description} {datetime.now().strftime('%Y_%m_%d %H_%M')}{extension}"
+        )
+        if filepath_for_saving.exists():
+            raise Exception(
+                "Warning: {filepath_for_saving} already exists, overwriting..."
+            )
+
+        self.fig.savefig(str(filepath_for_saving))
+
 
 def set_up_base_figure(
     analysis: FullSAUSCAnalysis,
@@ -1133,13 +1156,13 @@ def draw_woods_plot(analysis: FullSAUSCAnalysis, save: bool) -> None:
         base_figure.axes[index].axhline(0, linewidth=0.3, color="black", alpha=1)
 
     if save:
-        figure_folder = analysis.filepath.parent / "SAUSC Figures"
-        figure_folder.mkdir(parents=True, exist_ok=True)
         for extension in FIGURE_SAVING_FORMATS:
-            base_figure.fig.savefig(
-                fname=f"Woods plot {analysis.filepath.name} {datetime.now().strftime('%Y_%m_%d %H_%M')}{extension}"
+            base_figure.save(
+                description = "Woods plot",
+                extension=extension,
+                analysis_filepath = analysis.filepath
             )
-
+            
     plt.show()
 
 
@@ -1191,11 +1214,11 @@ def draw_volcano_plot(analysis: FullSAUSCAnalysis, annotate: bool, save: bool) -
                     fontsize=VOLCANO_PLOT_PARAMS.annotation_fontsize,
                 )
     if save:
-        figure_folder = analysis.filepath.parent / "SAUSC Figures"
-        figure_folder.mkdir(parents=True, exist_ok=True)
         for extension in FIGURE_SAVING_FORMATS:
-            base_figure.fig.savefig(
-                fname=f"Volcano plot {analysis.filepath.name} {datetime.now().strftime('%Y_%m_%d %H_%M')}{extension}"
+            base_figure.save(
+                description = "Woods plot",
+                extension=extension,
+                analysis_filepath = analysis.filepath
             )
 
     plt.show()
@@ -1211,7 +1234,7 @@ if __name__ == "pymol":
     @cmd.extend
     def woods_plot(save: PymolBool = "False") -> None:
         warn_SAUSC_not_run()
-    
+
     @cmd.extend
     def volcano_plot(save: PymolBool = "False", annotate: PymolBool = "True") -> None:
         warn_SAUSC_not_run()
