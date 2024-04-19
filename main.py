@@ -31,7 +31,7 @@ try:
 except ImportError as exc:
     raise ImportError("Please install scipy via 'pip install scipy'.") from exc
 
-if __name__ == "__pymol__":
+if __name__ == "pymol":
     from pymol import cmd
 
 # Unfortunately to run a script in pymol and navigate it's virtual environment
@@ -126,21 +126,15 @@ def file_browser() -> Optional[str]:
     """
     Opens a small window to allow a user to select a results file.
     """
-    try:
-        root = tk.Tk()
-        results_file = filedialog.askopenfilenames(
-            parent=root,
-            initialdir=pathlib.Path.home(),
-            initialfile="tmp",
-            filetypes=[("CSV", "*.csv"), ("All files", "*")],
-        )[0]
+    # In PyMol this gets directly injected to QtWidgets.QFileDialog.getOpenFileName
+    results_file = filedialog.askopenfilename(
+        title="Select state data",
+        initialdir=str(pathlib.Path.home()),
+        filetypes=[("CSV", "*.csv"), ("All files", "*")],
+    )
 
-        check_valid_hdx_file(results_file)
-        return results_file
-
-    finally:
-        root.destroy()
-
+    check_valid_hdx_file(results_file)
+    return results_file
 
 # Pymol passes all arguments to functions as strings
 # so here is a simple conversion mechanism
@@ -162,13 +156,13 @@ def _str_to_tuple_float(string: PymolTupleFloat) -> tuple[float, ...]:
     # Assuming input is of the form "(1.0, 1.0, 1.0)"
     stripped = string.strip("()")
     components = stripped.split(",")
-    if not all([utils.is_floatable(possible_float) for possible_float in components]):
+    if not all([is_floatable(possible_float) for possible_float in components]):
         raise ValueError(f"Components {components} are not all floatable.")
     return tuple([float(number) for number in components])
 
 
 def _str_to_float(string: str) -> float:
-    if utils.is_floatable(string):
+    if is_floatable(string):
         return float(string)
     else:
         raise ValueError(f"Argument {string} could not be interpreted as a float.")
@@ -1160,8 +1154,7 @@ def draw_volcano_plot(analysis: FullSAUSCAnalysis, annotate: bool) -> None:
 GLOBAL_CUSTOM_COLOUR_INDEX = 0
 
 
-if __name__ == "__pymol__":
-
+if __name__ == "pymol":
     def register_colours(colours: list[Colour]) -> dict[Colour, str]:
 
         colour_to_name: dict[Colour, str] = {}
@@ -1306,7 +1299,6 @@ if __name__ == "__pymol__":
         def volcano_plot():
             draw_volcano_plot(full_analysis)
 
-        return full_analysis
 
 
 if __name__ == "__main__":
