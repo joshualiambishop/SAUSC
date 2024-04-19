@@ -522,7 +522,7 @@ def load_state_data(
     )
     unique_exposures: tuple[str] = cast(
         tuple[str], tuple(dict.fromkeys(exposures).keys())
-    )
+    ) # TODO: Should this consider the 0 timestep?
 
     experimental_parameters = ExperimentalParameters(
         states=unique_states, exposures=unique_exposures, max_residue=end_residues.max()
@@ -940,6 +940,7 @@ def run_SAUSC_from_path(
     global_threshold = global_sem * t_critical
 
     # Hopefully a user will call the default state "default"...
+    # TODO: Check with luke
     if "default" in experimental_params.states[0].lower():
         default_is_first = True
     elif "default" in experimental_params.states[1].lower():
@@ -1204,15 +1205,28 @@ def draw_volcano_plot(analysis: FullSAUSCAnalysis, annotate: bool, save: bool) -
             -np.log10(1 - analysis.user_params.confidence_interval),
             **statistical_boundary_params,
         )
+
+        # Draw statistical boundaries
+        
+        if analysis.user_params.statistical_test | StatisticalTestType.T_TEST:
+
+            if VOLCANO_PLOT_PARAMS.y_data == DataForVisualisation.NEG_LOG_P:
+                threshold = -np.log10(1 - analysis.user_params.confidence_interval)
+                base_figure.axes[index].axhline(threshold,**statistical_boundary_params)
+
+            elif VOLCANO_PLOT_PARAMS.y_data == DataForVisualisation.P_VALUE:
+                threshold = 1 - analysis.user_params.confidence_interval
+                base_figure.axes[index].axhline(threshold,**statistical_boundary_params)
+       
         if (
             VOLCANO_PLOT_PARAMS.x_data == DataForVisualisation.UPTAKE_DIFFERENCE
-            and analysis.user_params.statistical_test == StatisticalTestType.HYBRID
+            and analysis.user_params.statistical_test | StatisticalTestType.GLOBAL_THRESHOLD
         ):
             threshold = (
                 analysis.global_threshold
                 if exposure != CUMULATIVE_EXPOSURE_KEY
                 else analysis.global_threshold
-                * len(analysis.experimental_params.exposures)
+                * len(analysis.experimental_params.exposures) # TODO: Should this account for 0 timestep?
             )
             base_figure.axes[index].axvline(threshold, **statistical_boundary_params)
             base_figure.axes[index].axvline(-threshold, **statistical_boundary_params)
