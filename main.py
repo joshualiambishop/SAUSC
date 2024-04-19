@@ -2,13 +2,8 @@
 Correspondence: joshualiambishop@gmail.com
 """
 
-from typing import Optional, TypeAlias, Callable, TypeVar, Any, Type, cast
+from typing import Optional
 
-import numpy as np
-import numpy.typing as npt
-import dataclasses
-
-import formulas
 import analysis_tools
 from pymol_interface import PymolBool, PymolFloat, PymolInt, PymolTupleFloat, convert_from_pymol
 import utils
@@ -16,16 +11,17 @@ import utils
 import figures
 
 import colouring_utils
-import data
+import pymol_scenes
+
 
 def colour_psb_structure_by_uptake_difference() -> None:
     pass
 
 
-if __name__ == "__main__":
-    # from pymol import cmd
+if __name__ == "__pymol__":
+    from pymol import cmd
 
-    # @cmd.extend
+    @cmd.extend
     def SAUSC(
         filepath: Optional[str] = None,
         n_repeats: PymolInt = "3",
@@ -84,6 +80,19 @@ if __name__ == "__main__":
             global_normalisation=convert_from_pymol(global_normalisation, bool)
 
         )
+
+        pymol_scenes.draw_uptake_on_scenes(full_analysis)
+
+        @cmd.extend
+        def woods_plot():
+            figures.draw_woods_plot(full_analysis)
+        
+        @cmd.extend
+        def volcano_plot():
+            figures.draw_volcano_plot(full_analysis)
+        
+
+
         return full_analysis
 
 

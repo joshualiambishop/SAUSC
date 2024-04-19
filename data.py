@@ -221,7 +221,7 @@ class UserParameters:
 
     n_repeats: int
     confidence_interval: float
-    global_normalisation: bool
+    normalisation_type: NormalisationMode
     statistical_test: StatisticalTestType
 
     def __post_init__(self):

@@ -2,7 +2,7 @@
 
 import dataclasses
 import utils
-from data import DataForVisualisation, NormalisationMode
+from data import DataForVisualisation
 
 @dataclasses.dataclass(frozen=True)
 class GenericFigureOptions:
@@ -13,7 +13,6 @@ class GenericFigureOptions:
 class BaseVisualisationOptions(GenericFigureOptions):
     y_data: DataForVisualisation
     colour_data: DataForVisualisation
-    colour_normalisation: NormalisationMode
 
 @dataclasses.dataclass(frozen=True)
 class WoodsPlotOptions(BaseVisualisationOptions):
@@ -37,7 +36,6 @@ WOODS_PLOT_PARAMS = WoodsPlotOptions(
     scale = 6.0,
     y_data = DataForVisualisation.UPTAKE_DIFFERENCE,
     colour_data = DataForVisualisation.RELATIVE_UPTAKE_DIFFERENCE,
-    colour_normalisation = NormalisationMode.ACROSS_EXPOSURES,
     box_thickness = 0.07
 )
 VOLCANO_PLOT_PARAMS = VolcanoPlotOptions(
@@ -46,7 +44,6 @@ VOLCANO_PLOT_PARAMS = VolcanoPlotOptions(
     x_data = DataForVisualisation.UPTAKE_DIFFERENCE,
     y_data = DataForVisualisation.NEG_LOG_P,
     colour_data= DataForVisualisation.RELATIVE_UPTAKE_DIFFERENCE,
-    colour_normalisation=NormalisationMode.ACROSS_EXPOSURES,
     circle_size = 1.0,
     circle_transparency= 0.7
 )

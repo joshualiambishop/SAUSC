@@ -55,3 +55,6 @@ def convert_from_pymol(argument: Any, requested_type: Type[SameAsInput]) -> Same
     ), f"Haven't implemented a conversion for type {requested_type}."
     convertor = pymol_convertors[requested_type]
     return convertor(argument)
+
+
+

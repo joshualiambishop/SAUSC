@@ -85,11 +85,11 @@ def set_up_base_figure(
 
     global_cmap: Optional[ScalarMappable] = None
 
-    if plotting_params.colour_normalisation != NormalisationMode.INDIVIDUAL:
+    if analysis.user_params.normalisation_type != NormalisationMode.INDIVIDUAL:
         global_normalisation_value = analysis_tools.find_normalisation_value(
             analysis.sequence_comparisons,
             data_type=plotting_params.colour_data,
-            normalisation_mode=plotting_params.colour_normalisation,
+            normalisation_mode=analysis.user_params.normalisation_type,
         )
         global_cmap = (
             analysis.colouring.uptake_colourmap_with_symmetrical_normalisation(
