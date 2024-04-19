@@ -1056,14 +1056,13 @@ def set_up_base_figure(
     ):
 
         sequence_comparisons = analysis.sequence_comparisons[exposure]
-
+        
         ax.set_title(
             (
                 CUMULATIVE_EXPOSURE_KEY
                 if exposure == CUMULATIVE_EXPOSURE_KEY
                 else f"Exposure = {exposure} minutes"
             ),
-            loc="left",
         )
 
         colour_map = (
@@ -1215,7 +1214,7 @@ def draw_volcano_plot(analysis: FullSAUSCAnalysis, annotate: bool, save: bool) -
                 f"{s.start_residue} - {s.end_residue}" for s in sequence_comparisons
             ]
             for seq_index, annotation in enumerate(annotations):
-                if sequence_comparisons[index].is_significant:
+                if sequence_comparisons[seq_index].is_significant:
                     base_figure.axes[index].annotate(
                         annotation,
                         (x_values[seq_index], y_values[seq_index]),
