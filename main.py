@@ -1056,7 +1056,7 @@ def set_up_base_figure(
     ):
 
         sequence_comparisons = analysis.sequence_comparisons[exposure]
-        
+
         ax.set_title(
             (
                 CUMULATIVE_EXPOSURE_KEY
@@ -1176,13 +1176,25 @@ def draw_volcano_plot(analysis: FullSAUSCAnalysis, annotate: bool, save: bool) -
         over_rows=False,
     )
 
+    statistical_boundary_params = {"color": "black", "linestyle": "--", "zorder": -1}
+
     for index, exposure in enumerate(
         (*analysis.experimental_params.exposures, CUMULATIVE_EXPOSURE_KEY)
     ):
 
         sequence_comparisons = analysis.sequence_comparisons[exposure]
 
-       
+        base_figure.axes[index].axhline(
+            -np.log10(1 - analysis.user_params.confidence_interval),
+            **statistical_boundary_params,
+        )
+        if VOLCANO_PLOT_PARAMS.x_data == DataForVisualisation.UPTAKE_DIFFERENCE:
+            base_figure.axes[index].axvline(
+                analysis.global_standard_error_mean, **statistical_boundary_params
+            )
+            base_figure.axes[index].axvline(
+                -analysis.global_standard_error_mean, **statistical_boundary_params
+            )
 
         x_values = [s.request(VOLCANO_PLOT_PARAMS.x_data) for s in sequence_comparisons]
         y_values = [s.request(VOLCANO_PLOT_PARAMS.y_data) for s in sequence_comparisons]
@@ -1206,7 +1218,7 @@ def draw_volcano_plot(analysis: FullSAUSCAnalysis, annotate: bool, save: bool) -
         largest_xscale = np.abs(base_figure.axes[index].get_xlim()).max()
         base_figure.axes[index].set(
             xlabel=pretty_string_for[VOLCANO_PLOT_PARAMS.x_data],
-            xlim = (-largest_xscale, largest_xscale)
+            xlim=(-largest_xscale, largest_xscale),
         )
 
         if annotate:
