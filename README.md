@@ -44,14 +44,19 @@ SAUSC takes several arguments to customise the analysis:
 ![Screenshot](for_readme/example_structure_1bk0.png "Example of coloured structure.")
 
 ## Accessory figures
+
 After SAUSC has been run on data, extra plotting functions will be populated inside the pymol namespace for the latest analysis.
 These can be invoked using the commands:
+
 ```woods_plot```
+
 Which will produce the figure:
 ![Screenshot](for_readme/example_woods_plot_1bk0.png "Example of woods plot.")
 
 and:
+
 ```volcano_plot```
+
 Which will produce the figure:
 ![Screenshot](for_readme/example_volcano_plot_1bk0.png "Example of volcano plot.")
 
