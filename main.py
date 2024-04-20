@@ -445,12 +445,12 @@ class BaseFragment:
         require_all_nonnegative(
             self.start_residue, self.end_residue, self.max_deuterium_uptake
         )
-        if self.start_residue <= self.end_residue:
+        if self.start_residue >= self.end_residue:
             raise ValueError("End residue must be after the start residue.")
 
         expected_sequence_length = self.end_residue - self.start_residue + 1
-        if len(self.sequence) == expected_sequence_length:
-            raise ValueError("Sequence must have {expected_sequence_length} residues.")
+        if len(self.sequence) != expected_sequence_length:
+            raise ValueError(f"Sequence must have {expected_sequence_length} residues.")
 
     def residue_present(self, residue: int) -> bool:
         return self.start_residue <= residue <= self.end_residue
