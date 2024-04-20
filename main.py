@@ -1,44 +1,88 @@
 """
-Correspondence: joshualiambishop@gmail.com
+Sequence Averaged Uptake State Comparison (SAUSC)
+
+This module is designed for the analysis and visualization of Hydrogen-Deuterium Exchange Mass Spectrometry (HDX-MS) data. It provides
+functionalities to process HDX-MS data, perform statistical tests, and generate visual representations such as Woods plots and Volcano plots.
+
+Features include:
+- Loading and validating HDX-MS data from CSV files.
+- Statistical comparisons between different states of proteins using tests like T-tests and global threshold tests.
+- Visualization tools integrated with PyMOL for generating plots directly from the HDX-MS analysis results within PyMOL.
+- Customizable plotting options and color schemes to highlight significant differences in deuterium uptake.
+
+This module is structured to run both as a standalone script and within the PyMOL environment, enabling users to leverage PyMOL's 
+capabilities for molecular visualization alongside HDX-MS data analysis.
+
+Usage:
+- As a standalone script, configure the required parameters and run the desired analysis functions.
+- Within PyMOL, load the script as a plugin and use the provided commands to interact with the analysis functions directly.
+
+Author: Josh Bishop
+Contact: joshualiambishop@gmail.com
 """
 
+# Standard library imports
 import dataclasses
+from datetime import datetime
+import enum
 import pathlib
 from tkinter import filedialog
 from typing import Any, Callable, Sequence, Type, TypeAlias, TypeVar, Optional, cast
-from datetime import datetime
-import numpy.typing as npt
-import numpy as np
 
-import enum
+import logging
 
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
+
+# Try importing third-party libraries
 # Non standard libraries will need to be installed within
-# PyMol itself, so the script can run in that environment.
+# PyMOL itself, so that this script can properly function.
+missing_libraries = []
+try:
+    import numpy as np
+    import numpy.typing as npt
+except ImportError:
+    missing_libraries.append("numpy")
 try:
     import matplotlib
-    from matplotlib.colors import ListedColormap, Normalize
-    from matplotlib.cm import ScalarMappable
     import matplotlib.pyplot as plt
     import matplotlib.patches as mpl_patches
     import matplotlib.collections as mpl_collections
-except ImportError as exc:
-    raise ImportError(
-        "Please install matplotlib via 'pip install matplotlib'."
-    ) from exc
+    from matplotlib.colors import ListedColormap, Normalize
+    from matplotlib.cm import ScalarMappable
+except ImportError:
+    missing_libraries.append("matplotlib")
 try:
     from scipy import stats
-except ImportError as exc:
-    raise ImportError("Please install scipy via 'pip install scipy'.") from exc
+except ImportError:
+    missing_libraries.append("scipy")
 
-if __name__ == "pymol":
+if len(missing_libraries) > 0:
+    logging.error(
+        "Missing required third-party libraries: %s", ", ".join(missing_libraries)
+    )
+    raise ImportError(f"Missing libraries: {', '.join(missing_libraries)}.")
+
+# Try importing PyMOL specific module
+try:
     from pymol import cmd
+except ImportError:
+    cmd = None
+    logging.warning("PyMOL is not installed. Some functionalities will be unavailable.")
 
-# Unfortunately to run a script in pymol and navigate it's virtual environment
-# everything must be defined within a single file. :(
+
+class InvalidFileFormatException(Exception):
+    """Specific exception for if something is wrong with the user's results file."""
+
+
 
 # For simplicity, a cumulative operation on all exposures are included as if it were a timepoint.
 # I've made this a constant simply for sanity.
 CUMULATIVE_EXPOSURE_KEY = "Cumulative"
+# If saving a figure, all the following formats will be saved together
+FIGURE_SAVING_FORMATS: list[str] = [".png", ".svg"]
+
 
 SameAsInput = TypeVar("SameAsInput")
 SameAsInputEnum = TypeVar("SameAsInputEnum", bound=enum.Enum)
@@ -52,16 +96,13 @@ class DataForVisualisation(enum.Enum):
 
 
 class NormalisationMode(enum.Enum):
-    INDIVIDUAL = enum.auto()  # Colourmaps are normalised to each individual exposure
+    INDIVIDUAL = enum.auto()  # Colourmaps are normalised to each individual exposure.
     ACROSS_EXPOSURES = (
         enum.auto()
-    )  # Colourmaps are normalised across the maximum for each exposure (not including cumulative)
+    )  # Colourmaps are normalised across the maximum for each exposure (not including cumulative).
     GLOBAL = (
         enum.auto()
-    )  # A single universal colourmap, not recommended with cumulative as that'll naturally skew the colours, but the option is there
-
-
-FIGURE_SAVING_FORMATS: list[str] = [".png", ".svg"]
+    )  # A single universal colourmap, not recommended with cumulative as that'll naturally skew the colours, but the option is there.
 
 
 ### General utilities ###
@@ -200,7 +241,7 @@ def file_browser() -> Optional[str]:
     """
     Opens a small window to allow a user to select a results file.
     """
-    # In PyMol this gets directly injected to QtWidgets.QFileDialog.getOpenFileName
+    # In PyMOL this gets directly injected to QtWidgets.QFileDialog.getOpenFileName
     results_file = filedialog.askopenfilename(
         title="Select state data",
         initialdir=str(pathlib.Path.home()),
@@ -211,15 +252,15 @@ def file_browser() -> Optional[str]:
     return results_file
 
 
-# Pymol passes all arguments to functions as strings
+# PyMOL passes all arguments to functions as strings
 # so here is a simple conversion mechanism
-PymolBool: TypeAlias = str
-PymolTupleFloat: TypeAlias = str
-PymolInt: TypeAlias = str
-PymolFloat: TypeAlias = str
+PyMOLBool: TypeAlias = str
+PyMOLTupleFloat: TypeAlias = str
+PyMOLInt: TypeAlias = str
+PyMOLFloat: TypeAlias = str
 
 
-def _str_to_bool(string: PymolBool) -> bool:
+def _str_to_bool(string: PyMOLBool) -> bool:
     if string.lower() == "true":
         return True
     if string.lower() == "false":
@@ -227,7 +268,7 @@ def _str_to_bool(string: PymolBool) -> bool:
     raise TypeError(f"Input {string} must be True or False")
 
 
-def _str_to_tuple_float(string: PymolTupleFloat) -> tuple[float, ...]:
+def _str_to_tuple_float(string: PyMOLTupleFloat) -> tuple[float, ...]:
     # Assuming input is of the form "(1.0, 1.0, 1.0)"
     stripped = string.strip("()")
     components = stripped.split(",")
@@ -247,7 +288,7 @@ def _str_to_int(string: str) -> float:
     return int(_str_to_float(string))
 
 
-pymol_convertors: dict[type, Callable] = {
+PYMOL_CONVERTORS: dict[type, Callable] = {
     bool: _str_to_bool,
     int: _str_to_int,
     float: _str_to_float,
@@ -256,10 +297,9 @@ pymol_convertors: dict[type, Callable] = {
 
 
 def convert_from_pymol(argument: Any, requested_type: Type[SameAsInput]) -> SameAsInput:
-    assert (
-        requested_type in pymol_convertors
-    ), f"Haven't implemented a conversion for type {requested_type}."
-    convertor = pymol_convertors[requested_type]
+    if requested_type not in PYMOL_CONVERTORS:
+        raise ValueError(f"No conversion for type {requested_type}.")
+    convertor = PYMOL_CONVERTORS[requested_type]
     return convertor(argument)
 
 
@@ -459,8 +499,6 @@ class UserParameters:
 
 
 ### Data loading and parsing
-class InvalidFileFormatException(Exception):
-    """Specific exception for if something is wrong with the user's results file."""
 
 
 EXPECTED_STATE_DATA_HEADERS: list[str] = [
@@ -522,7 +560,7 @@ def load_state_data(
     )
     unique_exposures: tuple[str] = cast(
         tuple[str], tuple(dict.fromkeys(exposures).keys())
-    ) # TODO: Should this consider the 0 timestep?
+    )  # TODO: Should this consider the 0 timestep?
 
     experimental_parameters = ExperimentalParameters(
         states=unique_states, exposures=unique_exposures, max_residue=end_residues.max()
@@ -611,7 +649,7 @@ pretty_string_for: dict[enum.Enum, str] = {
     NormalisationMode.ACROSS_EXPOSURES: "Normalised across timepoints",
     NormalisationMode.GLOBAL: "Normalised globally",
     StatisticalTestType.T_TEST: "Welch's T-test",
-    StatisticalTestType.GLOBAL_THRESHOLD: "Global threshold", #TODO: better name
+    StatisticalTestType.GLOBAL_THRESHOLD: "Global threshold",  # TODO: better name
     StatisticalTestType.HYBRID: "Hybrid test",
 }
 
@@ -863,13 +901,13 @@ def find_normalisation_value(
     normalisation_mode: NormalisationMode,
 ) -> float:
     if normalisation_mode == NormalisationMode.GLOBAL:
-        rel_data = [
+        relevant_data = [
             comparison
             for collection in comparisons.values()
             for comparison in collection
         ]
     elif normalisation_mode == NormalisationMode.ACROSS_EXPOSURES:
-        rel_data = [
+        relevant_data = [
             comparison
             for (exposure, collection) in comparisons.items()
             for comparison in collection
@@ -878,7 +916,7 @@ def find_normalisation_value(
     else:
         raise ValueError(f"Cannot interpret normalisation mode {normalisation_mode}")
 
-    return get_strongest_magnitude_of_type(rel_data, data_type)
+    return get_strongest_magnitude_of_type(relevant_data, data_type)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1207,26 +1245,33 @@ def draw_volcano_plot(analysis: FullSAUSCAnalysis, annotate: bool, save: bool) -
         )
 
         # Draw statistical boundaries
-        
+
         if analysis.user_params.statistical_test | StatisticalTestType.T_TEST:
 
             if VOLCANO_PLOT_PARAMS.y_data == DataForVisualisation.NEG_LOG_P:
                 threshold = -np.log10(1 - analysis.user_params.confidence_interval)
-                base_figure.axes[index].axhline(threshold,**statistical_boundary_params)
+                base_figure.axes[index].axhline(
+                    threshold, **statistical_boundary_params
+                )
 
             elif VOLCANO_PLOT_PARAMS.y_data == DataForVisualisation.P_VALUE:
                 threshold = 1 - analysis.user_params.confidence_interval
-                base_figure.axes[index].axhline(threshold,**statistical_boundary_params)
-       
+                base_figure.axes[index].axhline(
+                    threshold, **statistical_boundary_params
+                )
+
         if (
             VOLCANO_PLOT_PARAMS.x_data == DataForVisualisation.UPTAKE_DIFFERENCE
-            and analysis.user_params.statistical_test | StatisticalTestType.GLOBAL_THRESHOLD
+            and analysis.user_params.statistical_test
+            | StatisticalTestType.GLOBAL_THRESHOLD
         ):
             threshold = (
                 analysis.global_threshold
                 if exposure != CUMULATIVE_EXPOSURE_KEY
                 else analysis.global_threshold
-                * len(analysis.experimental_params.exposures) # TODO: Should this account for 0 timestep?
+                * len(
+                    analysis.experimental_params.exposures
+                )  # TODO: Should this account for 0 timestep?
             )
             base_figure.axes[index].axvline(threshold, **statistical_boundary_params)
             base_figure.axes[index].axvline(-threshold, **statistical_boundary_params)
@@ -1287,11 +1332,11 @@ if __name__ == "pymol":
     # Allow the user to run a function after preloading SAUSC, but warn in the case
     # the function hasn't actually been run
     @cmd.extend
-    def woods_plot(save: PymolBool = "False") -> None:
+    def woods_plot(save: PyMOLBool = "False") -> None:
         warn_SAUSC_not_run()
 
     @cmd.extend
-    def volcano_plot(save: PymolBool = "False", annotate: PymolBool = "True") -> None:
+    def volcano_plot(save: PyMOLBool = "False", annotate: PyMOLBool = "True") -> None:
         warn_SAUSC_not_run()
 
     def register_colours(colours: list[Colour]) -> dict[Colour, str]:
@@ -1388,14 +1433,14 @@ if __name__ == "pymol":
     @cmd.extend
     def SAUSC(
         filepath: Optional[str] = None,
-        n_repeats: PymolInt = "3",
-        confidence_interval: PymolFloat = "0.95",
+        n_repeats: PyMOLInt = "3",
+        confidence_interval: PyMOLFloat = "0.95",
         statistical_test: str = "HYBRID",
         protection_colourmap: str = "Blues",
         deprotection_colourmap: str = "Reds",
-        insignificant_colour: PymolTupleFloat = "(0.9, 0.9, 0.9)",
-        no_coverage_colour: PymolTupleFloat = "(0.1, 0.1, 0.1)",
-        normalisation_mode: PymolBool = "ACROSS_EXPOSURES",
+        insignificant_colour: PyMOLTupleFloat = "(0.9, 0.9, 0.9)",
+        no_coverage_colour: PyMOLTupleFloat = "(0.1, 0.1, 0.1)",
+        normalisation_mode: PyMOLBool = "ACROSS_EXPOSURES",
     ):
         """
         DESCRIPTION
@@ -1445,11 +1490,11 @@ if __name__ == "pymol":
         draw_uptake_on_scenes(full_analysis)
 
         @cmd.extend
-        def woods_plot(save: PymolBool = "False"):
+        def woods_plot(save: PyMOLBool = "False"):
             draw_woods_plot(full_analysis, save=convert_from_pymol(save, bool))
 
         @cmd.extend
-        def volcano_plot(annotate: PymolBool = "True", save: PymolBool = "False"):
+        def volcano_plot(annotate: PyMOLBool = "True", save: PyMOLBool = "False"):
             draw_volcano_plot(
                 full_analysis,
                 annotate=convert_from_pymol(annotate, bool),
