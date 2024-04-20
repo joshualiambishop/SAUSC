@@ -48,14 +48,18 @@ SAUSC takes several arguments to customise the analysis:
 After SAUSC has been run on data, extra plotting functions will be populated inside the pymol namespace for the latest analysis.
 These can be invoked using the commands:
 
-```woods_plot```
+```
+woods_plot
+```
 
 Which will produce the figure:
 ![Screenshot](for_readme/example_woods_plot_1bk0.png "Example of woods plot.")
 
 and:
 
-```volcano_plot```
+```
+volcano_plot
+```
 
 Which will produce the figure:
 ![Screenshot](for_readme/example_volcano_plot_1bk0.png "Example of volcano plot.")
@@ -65,15 +69,6 @@ Which will produce the figure:
 
 (Placeholder for images or GIFs to demonstrate script usage and results visualization)
 
-### Example Data
-- **Data Loading**
-  ![Load Data Image](path_to_load_data_image)
-
-- **Woods Plot Output**
-  ![Woods Plot Image](path_to_woods_plot_image)
-
-- **Volcano Plot Output**
-  ![Volcano Plot Image](path_to_volcano_plot_image)
 
 ## Contact
 For queries, contact Josh Bishop at joshualiambishop@gmail.com.
