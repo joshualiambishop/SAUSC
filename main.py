@@ -76,19 +76,74 @@ class InvalidFileFormatException(Exception):
     """Specific exception for if something is wrong with the user's results file."""
 
 
+class AnalysisNotRunException(Exception):
+    """
+    Performing the analysis requires some user input, for functionality where analysis is
+    a prerequisite, this exception can be thrown.
+    """
 
+
+Colour: TypeAlias = tuple[float, float, float]
 # For simplicity, a cumulative operation on all exposures are included as if it were a timepoint.
 # I've made this a constant simply for sanity.
 CUMULATIVE_EXPOSURE_KEY = "Cumulative"
 # If saving a figure, all the following formats will be saved together
 FIGURE_SAVING_FORMATS: list[str] = [".png", ".svg"]
-
+# These global variables ensure that PyMOL
+# scenes and colours are never overwritten
+GLOBAL_CUSTOM_COLOUR_INDEX = 1
+GLOBAL_SCENE_INDEX = 1
+# Nice bright purple to represent any errors visually
+ERROR_MAGENTA: Colour = (204.0, 0.0, 153.0)
+EXPECTED_STATE_DATA_HEADERS: list[str] = [
+    "Protein",
+    "Start",
+    "End",
+    "Sequence",
+    "Modification",
+    "Fragment",
+    "MaxUptake",
+    "MHP",
+    "State",
+    "Exposure",
+    "Center",
+    "Center SD",
+    "Uptake",
+    "Uptake SD",
+    "RT",
+    "RT SD",
+]
+# Making a new diverging colormap only really works if the pairs are both sequential types
+SEQUENTIAL_COLORMAPS: list[str] = [
+    "Greys",
+    "Purples",
+    "Blues",
+    "Greens",
+    "Oranges",
+    "Reds",
+    "YlOrBr",
+    "YlOrRd",
+    "OrRd",
+    "PuRd",
+    "RdPu",
+    "BuPu",
+    "GnBu",
+    "PuBu",
+    "YlGnBu",
+    "PuBuGn",
+    "BuGn",
+    "YlGn",
+]
 
 SameAsInput = TypeVar("SameAsInput")
 SameAsInputEnum = TypeVar("SameAsInputEnum", bound=enum.Enum)
 
 
 class DataForVisualisation(enum.Enum):
+    """
+    Defines the possible attributes represented visually.
+    """
+
     UPTAKE_DIFFERENCE = enum.auto()
     RELATIVE_UPTAKE_DIFFERENCE = enum.auto()
     P_VALUE = enum.auto()
@@ -96,6 +151,10 @@ class DataForVisualisation(enum.Enum):
 
 
 class NormalisationMode(enum.Enum):
+    """
+    With various states, these attributes define the colour normalisation between them
+    """
+
     INDIVIDUAL = enum.auto()  # Colourmaps are normalised to each individual exposure.
     ACROSS_EXPOSURES = (
         enum.auto()
@@ -105,16 +164,39 @@ class NormalisationMode(enum.Enum):
     )  # A single universal colourmap, not recommended with cumulative as that'll naturally skew the colours, but the option is there.
 
 
-### General utilities ###
-def enforce_between_0_and_1(value: float) -> None:
+class StatisticalTestType(enum.IntFlag):
+    """
+    Type of statistical test used to perform comparisons, IntFlag for bitmasking operations
+    and combinations.
+    """
+
+    T_TEST = 1
+    GLOBAL_THRESHOLD = 2
+    HYBRID = 3
+
+
+class ResidueType(enum.Enum):
+    AVERAGED = enum.auto()
+    ALL_INSIGNIFICANT = enum.auto()
+    NOT_COVERED = enum.auto()
+
+
+def require_nonnegative(value: float) -> None:
+    if value < 0:
+        raise ValueError(f"Value {value} must be non-negative.")
+
+
+def require_all_nonnegative(*values: float) -> None:
+    for value in values:
+        require_nonnegative(value)
+
+
+def enforce_between_0_and_1_inclusive(value: float) -> None:
     if not (0 <= value <= 1):
         raise ValueError(f"Value {value} must be between 0 and 1")
 
 
 def convert_percentage_if_necessary(value: float) -> float:
-    """
-    If a number is above 1, divide it by 100.
-    """
     if value <= 1:
         return value
     else:
@@ -129,6 +211,18 @@ def is_floatable(string: str) -> bool:
         return False
 
 
+def without_zeros(array: npt.NDArray) -> npt.NDArray:
+    """
+    HDX data often contains a 0 timepoint reference providing arrays
+    with 0 values, when doing any combinations or averaging, we'll want
+    to explicitly remove them.
+    """
+    is_zero = array == 0
+    if is_zero.all():
+        logging.warn(f"Array is all zero.")
+    return array[~is_zero]
+
+
 def find_matching_enum_from_meta(
     meta: Type[SameAsInputEnum], query: str
 ) -> SameAsInputEnum:
@@ -140,16 +234,18 @@ def find_matching_enum_from_meta(
 
 
 def warn_SAUSC_not_run() -> None:
-    raise Exception(
-        "Cannot perform requested action - SAUSC has not been run on any data"
+    raise AnalysisNotRunException(
+        "Cannot perform requested action - SAUSC has not been run on any data."
     )
 
 
-# Figures and plotting
 @dataclasses.dataclass(frozen=True)
 class GenericFigureOptions:
     dpi: float
     scale: float
+
+    def __post_init__(self) -> None:
+        require_all_nonnegative(self.dpi, self.scale)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -159,13 +255,18 @@ class BaseVisualisationOptions(GenericFigureOptions):
     statistical_linewidth: float
     statistical_linecolour: str
 
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        require_nonnegative(self.statistical_linewidth)
+
 
 @dataclasses.dataclass(frozen=True)
 class WoodsPlotOptions(BaseVisualisationOptions):
     box_thickness: float  # As a percentage of the y axes
 
     def __post_init__(self) -> None:
-        enforce_between_0_and_1(self.box_thickness)
+        super().__post_init__()
+        enforce_between_0_and_1_inclusive(self.box_thickness)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -174,6 +275,11 @@ class VolcanoPlotOptions(BaseVisualisationOptions):
     circle_size: float
     circle_transparency: float
     annotation_fontsize: float
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        require_nonnegative(self.circle_size)
+        enforce_between_0_and_1_inclusive(self.circle_transparency)
 
 
 #
@@ -207,27 +313,12 @@ VOLCANO_PLOT_PARAMS = VolcanoPlotOptions(
 )
 
 
-class StatisticalTestType(enum.IntFlag):
-    """
-    Type of statistical test used to perform comparisons, IntFlag for bitmasking operations
-    and combinations.
-    """
-
-    T_TEST = 1
-    GLOBAL_THRESHOLD = 2
-    HYBRID = 3
-
-
-class ResidueType(enum.Enum):
-    AVERAGED = enum.auto()
-    ALL_INSIGNIFICANT = enum.auto()
-    NOT_COVERED = enum.auto()
-
-
-### File browsing ###
-
-
 def check_valid_hdx_file(path: Optional[str]) -> None:
+    """
+    Performs a soft check that a filepath has been supplied,
+    the file exists (for when users input a path directly),
+    and the file is a csv.
+    """
     if path is None:
         raise ValueError("No path supplied.")
     filepath = pathlib.Path(path)
@@ -243,7 +334,7 @@ def file_browser() -> Optional[str]:
     """
     # In PyMOL this gets directly injected to QtWidgets.QFileDialog.getOpenFileName
     results_file = filedialog.askopenfilename(
-        title="Select state data",
+        title="(SAUSC) Select HDX results file (state data not cluster data)",
         initialdir=str(pathlib.Path.home()),
         filetypes=[("CSV", "*.csv"), ("All files", "*")],
     )
@@ -253,7 +344,6 @@ def file_browser() -> Optional[str]:
 
 
 # PyMOL passes all arguments to functions as strings
-# so here is a simple conversion mechanism
 PyMOLBool: TypeAlias = str
 PyMOLTupleFloat: TypeAlias = str
 PyMOLInt: TypeAlias = str
@@ -261,6 +351,9 @@ PyMOLFloat: TypeAlias = str
 
 
 def _str_to_bool(string: PyMOLBool) -> bool:
+    # There is no guarantee someone operating PyMOL will be familiar with python
+    # so .lower() is used to ensure "true" is as valid as the correct "True"
+    # (and as valid as "tRuE")
     if string.lower() == "true":
         return True
     if string.lower() == "false":
@@ -272,7 +365,7 @@ def _str_to_tuple_float(string: PyMOLTupleFloat) -> tuple[float, ...]:
     # Assuming input is of the form "(1.0, 1.0, 1.0)"
     stripped = string.strip("()")
     components = stripped.split(",")
-    if not all([is_floatable(possible_float) for possible_float in components]):
+    if not all([is_floatable(possible_float.strip()) for possible_float in components]):
         raise ValueError(f"Components {components} are not all floatable.")
     return tuple([float(number) for number in components])
 
@@ -284,8 +377,11 @@ def _str_to_float(string: str) -> float:
         raise ValueError(f"Argument {string} could not be interpreted as a float.")
 
 
-def _str_to_int(string: str) -> float:
-    return int(_str_to_float(string))
+def _str_to_int(string: str) -> int:
+    if is_floatable(string):
+        return int(string)
+    else:
+        raise ValueError(f"Argument {string} could not be interpreted as an int.")
 
 
 PYMOL_CONVERTORS: dict[type, Callable] = {
@@ -296,7 +392,7 @@ PYMOL_CONVERTORS: dict[type, Callable] = {
 }
 
 
-def convert_from_pymol(argument: Any, requested_type: Type[SameAsInput]) -> SameAsInput:
+def convert_from_pymol(argument: str, requested_type: Type[SameAsInput]) -> SameAsInput:
     if requested_type not in PYMOL_CONVERTORS:
         raise ValueError(f"No conversion for type {requested_type}.")
     convertor = PYMOL_CONVERTORS[requested_type]
@@ -305,12 +401,11 @@ def convert_from_pymol(argument: Any, requested_type: Type[SameAsInput]) -> Same
 
 ### Mathematical formulas ###
 def pooled_stdev(stdevs: npt.NDArray[np.float_]) -> float:
-
-    # HDX data often contains a 0 timepoint reference
-    # At this point, the uptake and stdev is 0, which we don't want to average
-    stdevs_without_initial_timepoint = stdevs[stdevs != 0]
-
-    variance = stdevs_without_initial_timepoint**2
+    """
+    Combines standard deviations into a single number, simplified since within HDX results we
+    will always be pooling standard deviations with the same number of observations.
+    """
+    variance = without_zeros(stdevs) ** 2
     avg_variance = variance.mean()
     return np.sqrt(avg_variance)
 
@@ -320,12 +415,19 @@ def pooled_standard_error_mean(stdevs: npt.NDArray[np.float_], n_repeats: int) -
     return pooled_sem
 
 
-### Data storage and encapsulation ###
 @dataclasses.dataclass(frozen=True)
 class Uptake:
+    """
+    Simple wrapper for an observation of a fragment, represents the distribution
+    of observed deuterium uptakes across a range of repeats (universal across an experiment)
+    """
+
     mean: float
     stdev: float
     cumulative: bool = False
+
+    def __post_init__(self):
+        require_all_nonnegative(self.mean, self.stdev)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -340,13 +442,15 @@ class BaseFragment:
     max_deuterium_uptake: float
 
     def __post_init__(self) -> None:
-        assert (
-            self.start_residue <= self.end_residue
-        ), "End residue must be after the start residue."
+        require_all_nonnegative(
+            self.start_residue, self.end_residue, self.max_deuterium_uptake
+        )
+        if self.start_residue <= self.end_residue:
+            raise ValueError("End residue must be after the start residue.")
+
         expected_sequence_length = self.end_residue - self.start_residue + 1
-        assert (
-            len(self.sequence) == expected_sequence_length
-        ), "Sequence must have {expected_sequence_length} residues."
+        if len(self.sequence) == expected_sequence_length:
+            raise ValueError("Sequence must have {expected_sequence_length} residues.")
 
     def residue_present(self, residue: int) -> bool:
         return self.start_residue <= residue <= self.end_residue
@@ -389,13 +493,19 @@ class StateData(BaseFragment):
 @dataclasses.dataclass(frozen=True)
 class Comparison(BaseFragment):
     """
-    Represents the difference between a state and reference of a given fragment, at a given exposure.
+    Represents the difference between a state and reference of a given fragment,
+    at a given exposure.
     """
 
     uptake_difference: float
     p_value: float
     is_significant: bool
     exposure: str
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        # Uptake difference can of course be negative
+        require_nonnegative(self.p_value)
 
     @property
     def neg_log_p(self) -> float:
@@ -443,6 +553,10 @@ class Comparison(BaseFragment):
 
 @dataclasses.dataclass(frozen=True)
 class SingleResidueComparison:
+    """
+    As part of the colouring, we will need to split the comparisons over a single residue.
+    """
+
     amino_acid: str
     residue: int
     uptake_difference: float
@@ -451,7 +565,9 @@ class SingleResidueComparison:
     residue_type: ResidueType
 
     def __post_init__(self) -> None:
-        assert len(self.amino_acid) == 1, "Amino acid must be a single character."
+        require_all_nonnegative(self.uptake_stdev, self.residue)
+        if not len(self.amino_acid) == 1:
+            raise ValueError("Amino acid must be a single character.")
 
     @classmethod
     def as_empty(cls, residue: int, exposure: str) -> "SingleResidueComparison":
@@ -468,7 +584,8 @@ class SingleResidueComparison:
 @dataclasses.dataclass(frozen=True)
 class ExperimentalParameters:
     """
-    Simple container for the parameters of the experiment, how many states (assuming one is the default), and the number of deuterium exposure durations (in minutes)
+    Simple container for the parameters of the experiment; the states (assuming one is the default),
+    and the number of deuterium exposure durations (in minutes)
     """
 
     states: tuple[str, str]
@@ -476,7 +593,9 @@ class ExperimentalParameters:
     max_residue: int
 
     def __post_init__(self):
-        assert len(self.states), "SAUSC only supports datafiles with two states."
+        require_nonnegative(self.max_residue)
+        if not len(self.states) == 2:
+            raise ValueError("SAUSC only supports datafiles with two states.")
 
     @property
     def sequence_parse_length(self) -> int:
@@ -495,37 +614,16 @@ class UserParameters:
     statistical_test: StatisticalTestType
 
     def __post_init__(self):
-        enforce_between_0_and_1(self.confidence_interval)
-
-
-### Data loading and parsing
-
-
-EXPECTED_STATE_DATA_HEADERS: list[str] = [
-    "Protein",
-    "Start",
-    "End",
-    "Sequence",
-    "Modification",
-    "Fragment",
-    "MaxUptake",
-    "MHP",
-    "State",
-    "Exposure",
-    "Center",
-    "Center SD",
-    "Uptake",
-    "Uptake SD",
-    "RT",
-    "RT SD",
-]
+        enforce_between_0_and_1_inclusive(self.confidence_interval)
+        require_nonnegative(self.n_repeats)
 
 
 def load_state_data(
     filepath: str,
 ) -> tuple[list[StateData], ExperimentalParameters]:
     """
-    This is specifically designed to load a .csv containing state
+    This is specifically designed to load a .csv containing state data.
+    There are several checks to ensure data is in the correct format and layout.
     """
     expected_columns = np.arange(len(EXPECTED_STATE_DATA_HEADERS)).tolist()
     loaded_data = np.loadtxt(
@@ -536,9 +634,10 @@ def load_state_data(
     # Z refers to [something], only present in cluster data, a common mistake.
     if "z" in loaded_data:
         raise InvalidFileFormatException(
-            f"{filepath} appears to be cluster data, SAUSC only operates on state "
+            f"{filepath} appears to be cluster data, SAUSC only operates on state data."
         )
-
+    # Ensure the headers are arranged in the expected layout, for confidence that
+    # we are assigning the correct information.
     if not np.all(headers == EXPECTED_STATE_DATA_HEADERS):
         raise InvalidFileFormatException(
             f"headers {headers} is not the expected {EXPECTED_STATE_DATA_HEADERS}."
@@ -560,13 +659,14 @@ def load_state_data(
     )
     unique_exposures: tuple[str] = cast(
         tuple[str], tuple(dict.fromkeys(exposures).keys())
-    )  # TODO: Should this consider the 0 timestep?
+    )
 
     experimental_parameters = ExperimentalParameters(
         states=unique_states, exposures=unique_exposures, max_residue=end_residues.max()
     )
 
-    # This complexity exists only to give the user a helpful targeted error message if there is a missing column
+    # This complexity exists only to give the user a helpful targeted
+    # error message if there is a missing column
     indexes = np.arange(len(loaded_data) - 1)
     n_chunks = len(indexes) // experimental_parameters.sequence_parse_length
 
@@ -660,34 +760,6 @@ def multi_line(string: str) -> str:
     return string.replace(" ", "\n", n_spaces - 1)
 
 
-Colour: TypeAlias = tuple[float, float, float]
-
-# Nice bright purple to represent any errors visually
-ERROR_MAGENTA: Colour = (204.0, 0.0, 153.0)
-
-# Making a new diverging colormap only really works if the pairs are both sequential types
-SEQUENTIAL_COLORMAPS: list[str] = [
-    "Greys",
-    "Purples",
-    "Blues",
-    "Greens",
-    "Oranges",
-    "Reds",
-    "YlOrBr",
-    "YlOrRd",
-    "OrRd",
-    "PuRd",
-    "RdPu",
-    "BuPu",
-    "GnBu",
-    "PuBu",
-    "YlGnBu",
-    "PuBuGn",
-    "BuGn",
-    "YlGn",
-]
-
-
 @dataclasses.dataclass(frozen=True)
 class ColourScheme:
     """
@@ -699,25 +771,26 @@ class ColourScheme:
     no_coverage: Colour
     error: Colour = ERROR_MAGENTA
 
-    def uptake_colourmap_with_symmetrical_normalisation(
-        self, value: float
+    def make_uptake_colourmap_with_symmetrical_normalisation(
+        self, max_value: float
     ) -> ScalarMappable:
-        assert value >= 0, "Value for normalisation must be non-negative."
-        normalisation = Normalize(vmin=-value, vmax=value)
+        require_nonnegative(max_value)
+        normalisation = Normalize(vmin=-max_value, vmax=max_value)
         return ScalarMappable(norm=normalisation, cmap=self.uptake_colourmap)
 
 
 def cast_to_colour(values: tuple[float, ...]) -> Colour:
-    assert len(values) == 3, "Colour must be formed of 3 values (RGB)."
+    if len(values) != 3:
+        raise ValueError("Colour must be formed of 3 values (RGB).")
     return cast(Colour, values)
 
 
-# Only makes sense for HDX results to have white in the middle.
 def make_diverging_colormap(
     protection_colormap: str, deprotection_colormap: str
 ) -> ListedColormap:
     """
     Combine two sequential colormaps into a diverging one, giving a user flexibility for their (de)protection colors.
+    Only makes sense for HDX results to have white in the middle.
     """
 
     if protection_colormap not in SEQUENTIAL_COLORMAPS:
@@ -740,6 +813,8 @@ def make_diverging_colormap(
     protection_cmap = matplotlib.colormaps[protection_colormap].resampled(128)
     deprotection_cmap = matplotlib.colormaps[deprotection_colormap].resampled(128)
 
+    # Protection colour (i.e. negative values) is reversed so that the colour intensity
+    # increases with more negative values.
     new_colours = np.vstack(
         (protection_cmap(sampling)[::-1], deprotection_cmap(sampling))
     )
@@ -754,29 +829,40 @@ def make_diverging_colormap(
 def compare_uptakes(
     default: Uptake,
     other: Uptake,
-    params: UserParameters,
+    user_params: UserParameters,
+    experimental_params: ExperimentalParameters,
     global_threshold: float,
 ) -> tuple[float, float, bool]:
-
+    """
+    Compares two uptakes and returns the difference and significance
+    """
     uptake_difference = other.mean - default.mean
+
+    if default.cumulative != other.cumulative:
+        raise ValueError("Cannot compare cumulative uptakes to standard uptakes.")
 
     significant = True
 
-    if params.statistical_test | StatisticalTestType.T_TEST:
+    if user_params.statistical_test | StatisticalTestType.T_TEST:
 
         p_value = stats.ttest_ind_from_stats(
             mean1=default.mean,
             std1=default.stdev,
-            nobs1=params.n_repeats,
+            nobs1=user_params.n_repeats,
             mean2=other.mean,
             std2=other.stdev,
-            nobs2=params.n_repeats,
+            nobs2=user_params.n_repeats,
         ).pvalue
 
-        significant &= p_value < (1 - params.confidence_interval)
+        significant &= p_value < (1 - user_params.confidence_interval)
 
-    if params.statistical_test | StatisticalTestType.GLOBAL_THRESHOLD:
-        globally_significant = abs(uptake_difference) > global_threshold
+    if user_params.statistical_test | StatisticalTestType.GLOBAL_THRESHOLD:
+        if default.cumulative and other.cumulative:
+            globally_significant = abs(uptake_difference) > global_threshold * len(
+                experimental_params.exposures
+            )  # TODO: Not sure this is the correct thing to do...
+        else:
+            globally_significant = abs(uptake_difference) > global_threshold
         significant &= globally_significant
 
     return uptake_difference, p_value, significant
@@ -785,10 +871,13 @@ def compare_uptakes(
 def compare_states(
     default: StateData,
     other: StateData,
-    params: UserParameters,
+    user_params: UserParameters,
+    experimental_params: ExperimentalParameters,
     global_threshold: float,
 ) -> dict[str, Comparison]:
-
+    """
+    Compares two states together and returns a comparison for each exposure.
+    """
     if not default.is_same_fragment(other):
         raise ValueError(
             f"Cannot compare state data from different sequences ({default} != {other})."
@@ -808,7 +897,8 @@ def compare_states(
         uptake_difference, p_value, is_significant = compare_uptakes(
             default=default_uptake,
             other=other_uptake,
-            params=params,
+            user_params=user_params,
+            experimental_params=experimental_params,
             global_threshold=global_threshold,
         )
 
@@ -828,9 +918,14 @@ def compare_states(
 def split_comparisons_by_residue(
     comparisons: list[Comparison], params: ExperimentalParameters
 ) -> list[SingleResidueComparison]:
-    assert (
-        len(set([c.exposure for c in comparisons])) == 1
-    ), "Comparisons must be from the same exposure time."
+    """
+    With all the comparisons performed across the dataset, go residue by residue, determine
+    what sequences the residue is present in and average together the uptake differences on those
+    that are statistically significant.
+    """
+    if len(set([c.exposure for c in comparisons])) > 1:
+        raise ValueError("All comparisons must be from the same exposure time.")
+
     exposure = comparisons[0].exposure
 
     all_residues = np.arange(params.max_residue + 1)
@@ -942,7 +1037,9 @@ def run_SAUSC_from_path(
     no_coverage_colour: Colour,
     normalisation_mode: str,
 ) -> FullSAUSCAnalysis:
-
+    """
+    Perform the full data analysis procedure.
+    """
     user_params = UserParameters(
         n_repeats=n_repeats,
         confidence_interval=confidence_interval,
@@ -961,8 +1058,30 @@ def run_SAUSC_from_path(
         insignificant=insignificant_colour,
         no_coverage=no_coverage_colour,
     )
+    # Keep the user explicitly updated with their full choices
+    # (also helps to see defaults that may go unnoticed)
+    logging.info(
+        f"""
+        User selected options:
+        filepath: {filepath}
+        n_repeats: {user_params.n_repeats}
+        confidence_interval: {user_params.confidence_interval}
+        statistical_test: {user_params.statistical_test}
+        protection_colourmap: {protection_colourmap}
+        deprotection_colourmap: {deprotection_colourmap}
+        insignificant_colour: {insignificant_colour}
+        no_coverage_colour: {no_coverage_colour}
+        normalisation_mode: {user_params.normalisation_type}
+        """
+    )
     loaded_results, experimental_params = load_state_data(filepath)
-
+    logging.info(
+        f"""
+        Successfully loaded file, determined parameters:
+        Unique states: {' & '.join([state for state in experimental_params.states])}
+        Exposure lengths: {', '.join([exposure for exposure in experimental_params.exposures])}
+        """
+    )
     global_sem = pooled_standard_error_mean(
         stdevs=np.array(
             [
@@ -978,7 +1097,7 @@ def run_SAUSC_from_path(
     global_threshold = global_sem * t_critical
 
     # Hopefully a user will call the default state "default"...
-    # TODO: Check with luke
+    # TODO: Check with luke if that is generally the case.
     if "default" in experimental_params.states[0].lower():
         default_is_first = True
     elif "default" in experimental_params.states[1].lower():
@@ -994,7 +1113,11 @@ def run_SAUSC_from_path(
 
     _comparisons: list[dict[str, Comparison]] = [
         compare_states(
-            default, other, params=user_params, global_threshold=global_threshold
+            default,
+            other,
+            user_params=user_params,
+            experimental_params=experimental_params,
+            global_threshold=global_threshold,
         )
         for default, other in zip(default_states, other_states)
     ]
@@ -1032,29 +1155,36 @@ class BaseFigure:
     colourmaps: Sequence[ScalarMappable]
 
     def __post_init__(self) -> None:
-        assert len(self.axes) == len(
-            self.colourmaps
-        ), "Must have a colourmap deifned for each axis."
+        if not len(self.axes) == len(self.colourmaps):
+            raise ValueError("Must provide 1 colourmap for each axis.")
 
     def save(
         self, description: str, extension: str, analysis_filepath: pathlib.Path
     ) -> None:
-        assert extension.startswith(
-            "."
-        ), f"{extension} is an unsuitable file extension, must begin with ."
+        """
+        Save the current figure into a folder labelled "SAUSC Figures" next to the results file.
+        Will save a copy with each given file extension.
+        """
+        if not extension.startswith("."):
+            raise ValueError(
+                f"{extension} is an unsuitable file extension, must begin with ."
+            )
         figure_folder = analysis_filepath.parent / "SAUSC Figures"
         figure_folder.mkdir(parents=True, exist_ok=True)
         filepath_for_saving = (
             figure_folder
             / f"{analysis_filepath.stem} {description} {datetime.now().strftime('%Y_%m_%d %H_%M')}{extension}"
         )
+
+        # While there is a very low probability a user will save the figure twice in the same minute, we
+        # choose to just overwrite as this is more likely to be a result of a minor tweak to the figure.
         if filepath_for_saving.exists():
             raise Exception(
                 "Warning: {filepath_for_saving} already exists, overwriting..."
             )
 
         self.fig.savefig(str(filepath_for_saving))
-        print(
+        logging.info(
             f"Successfully saved {description.lower()} next to file at {filepath_for_saving}"
         )
 
@@ -1067,7 +1197,7 @@ def set_up_base_figure(
     yspan: float = 1,
 ) -> BaseFigure:
     """
-    This shared utility sorts out the arrangment of the plot, with proper scaling and colourbars
+    This shared utility sorts out the arrangment of the plots, with proper scaling and colourbars
     """
 
     n_plots_needed = (
@@ -1096,7 +1226,7 @@ def set_up_base_figure(
             normalisation_mode=analysis.user_params.normalisation_type,
         )
         global_cmap = (
-            analysis.colouring.uptake_colourmap_with_symmetrical_normalisation(
+            analysis.colouring.make_uptake_colourmap_with_symmetrical_normalisation(
                 global_normalisation_value
             )
         )
@@ -1116,7 +1246,7 @@ def set_up_base_figure(
         )
 
         colour_map = (
-            analysis.colouring.uptake_colourmap_with_symmetrical_normalisation(
+            analysis.colouring.make_uptake_colourmap_with_symmetrical_normalisation(
                 get_strongest_magnitude_of_type(
                     sequence_comparisons, plotting_params.colour_data
                 )
@@ -1324,9 +1454,6 @@ def draw_volcano_plot(analysis: FullSAUSCAnalysis, annotate: bool, save: bool) -
     plt.show()
 
 
-GLOBAL_CUSTOM_COLOUR_INDEX = 1
-GLOBAL_SCENE_INDEX = 1
-
 if __name__ == "pymol":
 
     # Allow the user to run a function after preloading SAUSC, but warn in the case
@@ -1339,7 +1466,7 @@ if __name__ == "pymol":
     def volcano_plot(save: PyMOLBool = "False", annotate: PyMOLBool = "True") -> None:
         warn_SAUSC_not_run()
 
-    def register_colours(colours: list[Colour]) -> dict[Colour, str]:
+    def register_colours_to_PyMOL(colours: list[Colour]) -> dict[Colour, str]:
         global GLOBAL_CUSTOM_COLOUR_INDEX
         colour_to_name: dict[Colour, str] = {}
 
@@ -1365,7 +1492,7 @@ if __name__ == "pymol":
                 normalisation_mode=analysis.user_params.normalisation_type,
             )
             global_cmap = (
-                analysis.colouring.uptake_colourmap_with_symmetrical_normalisation(
+                analysis.colouring.make_uptake_colourmap_with_symmetrical_normalisation(
                     global_normalisation_value
                 )
             )
@@ -1377,7 +1504,7 @@ if __name__ == "pymol":
             residue_comparisons = analysis.residue_comparisons[exposure]
             sequence_comparisons = analysis.sequence_comparisons[exposure]
             colour_map = (
-                analysis.colouring.uptake_colourmap_with_symmetrical_normalisation(
+                analysis.colouring.make_uptake_colourmap_with_symmetrical_normalisation(
                     get_strongest_magnitude_of_type(
                         sequence_comparisons, DataForVisualisation.UPTAKE_DIFFERENCE
                     )
@@ -1389,9 +1516,10 @@ if __name__ == "pymol":
             colours = [ERROR_MAGENTA] * len(analysis.full_sequence)
 
             for index, residue_data in enumerate(residue_comparisons):
-                assert (
-                    residue_data.residue == index
-                ), "Residue number must also be position in the array."
+                if residue_data.residue != index:
+                    raise ValueError(
+                        "Residue number must also be position in the array."
+                    )
                 match residue_data.residue_type:
                     case ResidueType.AVERAGED:
                         colours[index] = colour_map.to_rgba(
@@ -1404,7 +1532,7 @@ if __name__ == "pymol":
                     case ResidueType.NOT_COVERED:
                         colours[index] = analysis.colouring.no_coverage
 
-            colour_to_name = register_colours(colours)
+            colour_to_name = register_colours_to_PyMOL(colours)
 
             for index, colour in enumerate(colours):
                 cmd.color(colour_to_name[colour], selection=f"res {index}")
@@ -1467,7 +1595,8 @@ if __name__ == "pymol":
             check_valid_hdx_file(filepath)
 
         # Essentially just mypy juggling, this is already handled internally
-        assert filepath is not None, "File checker didn't work."
+        if filepath is None:
+            raise ValueError("File checker didn't work.")
 
         full_analysis = run_SAUSC_from_path(
             filepath=filepath,
