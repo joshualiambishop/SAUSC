@@ -39,7 +39,7 @@ SAUSC takes several arguments to customise the analysis:
 | normalisation_mode       | ACROSS_EXPOSURES | Mode of normalisation for colour mapping. Options are INDIVIDUAL, ACROSS_EXPOSURES, or GLOBAL. |
 
 5. Once SAUSC has run with your desired settings, there will be a scene populated for each exposure time:
-![Screenshot](for_readme/Example analysis on 1bk0.png "Example of coloured structure.")
+![Screenshot](for_readme/example_structure_1bk0.png "Example of coloured structure.")
 
 
 woods_plot save="True"
