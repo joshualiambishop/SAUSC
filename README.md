@@ -38,15 +38,23 @@ SAUSC takes several arguments to customise the analysis:
 | no_coverage_colour       | (0.1, 0.1, 0.1)  | Colour (RGB values) for areas with no coverage. Default is black.                              |
 | normalisation_mode       | ACROSS_EXPOSURES | Mode of normalisation for colour mapping. Options are INDIVIDUAL, ACROSS_EXPOSURES, or GLOBAL. |
 
+
 5. Once SAUSC has run with your desired settings, there will be a scene populated for each exposure time:
+
 ![Screenshot](for_readme/example_structure_1bk0.png "Example of coloured structure.")
 
+## Accessory figures
+After SAUSC has been run on data, extra plotting functions will be populated inside the pymol namespace for the latest analysis.
+These can be invoked using the commands:
+```woods_plot```
+Which will produce the figure:
+![Screenshot](for_readme/example_woods_plot_1bk0.png "Example of woods plot.")
 
-woods_plot save="True"
-volcano_plot annotate="True", save="True"
+and:
+```volcano_plot```
+Which will produce the figure:
+![Screenshot](for_readme/example_volcano_plot_1bk0.png "Example of volcano plot.")
 
-## Customization
-Modify constants and parameters directly in the script to adjust color schemes, thresholds, and output settings.
 
 ## Examples and Walkthrough
 
