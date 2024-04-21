@@ -250,14 +250,17 @@ class GenericFigureOptions:
 
 @dataclasses.dataclass(frozen=True)
 class BaseVisualisationOptions(GenericFigureOptions):
+    x_data: Optional[DataForVisualisation]
     y_data: DataForVisualisation
     colour_data: DataForVisualisation
     statistical_linewidth: float
     statistical_linecolour: str
-
+    exposure_title_location: str
     def __post_init__(self) -> None:
         super().__post_init__()
         require_nonnegative(self.statistical_linewidth)
+        if self.exposure_title_location not in ("center", "left", "right"):
+            raise ValueError("Exposure title location must be one of 'center', 'left', or 'right'")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -271,7 +274,6 @@ class WoodsPlotOptions(BaseVisualisationOptions):
 
 @dataclasses.dataclass(frozen=True)
 class VolcanoPlotOptions(BaseVisualisationOptions):
-    x_data: DataForVisualisation
     circle_size: float
     circle_transparency: float
     annotation_fontsize: float
@@ -280,7 +282,8 @@ class VolcanoPlotOptions(BaseVisualisationOptions):
         super().__post_init__()
         require_nonnegative(self.circle_size)
         enforce_between_0_and_1_inclusive(self.circle_transparency)
-
+        if self.x_data is None:
+            raise ValueError("Must define x data for the volcano plot.")
 
 #
 #
@@ -292,11 +295,13 @@ class VolcanoPlotOptions(BaseVisualisationOptions):
 WOODS_PLOT_PARAMS = WoodsPlotOptions(
     dpi=100.0,
     scale=6.0,
+    x_data=None,  # Must be residue, handled within the function
     y_data=DataForVisualisation.UPTAKE_DIFFERENCE,
     colour_data=DataForVisualisation.RELATIVE_UPTAKE_DIFFERENCE,
-    box_thickness=0.07,
-    statistical_linewidth=0.1,
+    box_thickness=0.02,
+    statistical_linewidth=0.5,
     statistical_linecolour="black",
+    exposure_title_location="left"
 )
 
 VOLCANO_PLOT_PARAMS = VolcanoPlotOptions(
@@ -310,6 +315,7 @@ VOLCANO_PLOT_PARAMS = VolcanoPlotOptions(
     annotation_fontsize=5.0,
     statistical_linewidth=0.5,
     statistical_linecolour="black",
+    exposure_title_location="center"
 )
 
 
@@ -1197,7 +1203,7 @@ def set_up_base_figure(
     yspan: float = 1,
 ) -> BaseFigure:
     """
-    This shared utility sorts out the arrangment of the plots, with proper scaling and colourbars
+    This shared utility sorts out the arrangment of the plots, with proper scaling, colourbars and labels.
     """
 
     n_plots_needed = (
@@ -1243,6 +1249,7 @@ def set_up_base_figure(
                 if exposure == CUMULATIVE_EXPOSURE_KEY
                 else f"Exposure = {exposure} minutes"
             ),
+            loc = plotting_params.exposure_title_location
         )
 
         colour_map = (
@@ -1254,11 +1261,60 @@ def set_up_base_figure(
             if (global_cmap is None) or exposure == CUMULATIVE_EXPOSURE_KEY
             else global_cmap
         )
-
+        # Axis labels
         axes_colourmaps.append(colour_map)
-        ax.set(
-            ylabel=multi_line(pretty_string_for[plotting_params.y_data]),
-        )
+        if plotting_params.y_data is not None:
+            ax.set_ylabel(multi_line(pretty_string_for[plotting_params.y_data]))
+        if plotting_params.x_data is not None:
+            ax.set_xlabel(multi_line(pretty_string_for[plotting_params.x_data]))
+
+        # Statistical boundary lines
+        statistical_boundary_params = {
+            "color": plotting_params.statistical_linecolour,
+            "linewidth": plotting_params.statistical_linewidth,
+            "linestyle": "--",
+            "zorder": -1,
+        }
+        for axis_data, line_func in zip(
+            [plotting_params.x_data, plotting_params.y_data], [ax.axvline, ax.axhline]
+        ):
+            if axis_data is None:
+                continue
+
+            match axis_data:
+
+                case DataForVisualisation.NEG_LOG_P:
+                    threshold = -np.log10(1 - analysis.user_params.confidence_interval)
+                    if (
+                        analysis.user_params.statistical_test
+                        | StatisticalTestType.T_TEST
+                    ):
+                        line_func(threshold, **statistical_boundary_params)
+
+                case DataForVisualisation.P_VALUE:
+                    threshold = 1 - analysis.user_params.confidence_interval
+                    if (
+                        analysis.user_params.statistical_test
+                        | StatisticalTestType.T_TEST
+                    ):
+                        line_func(threshold, **statistical_boundary_params)
+
+                case DataForVisualisation.UPTAKE_DIFFERENCE:
+                    threshold = (
+                        analysis.global_threshold
+                        if exposure != CUMULATIVE_EXPOSURE_KEY
+                        else analysis.global_threshold
+                        * len(
+                            analysis.experimental_params.exposures
+                        )  # TODO: Should this account for 0 timestep?
+                    )
+
+                    if (
+                        analysis.user_params.statistical_test
+                        | StatisticalTestType.GLOBAL_THRESHOLD
+                    ):
+                        line_func(threshold, **statistical_boundary_params)
+                        line_func(-threshold, **statistical_boundary_params)
 
     # Draw colourmaps when required:
     for index in range(len(axes)):
@@ -1295,23 +1351,21 @@ def draw_woods_plot(analysis: FullSAUSCAnalysis, save: bool) -> None:
 
         sequence_comparisons = analysis.sequence_comparisons[exposure]
 
-        base_figure.axes[index].set(
-            xlabel="Residue",
-            xlim=(0, analysis.experimental_params.max_residue + 1),
-        )
+        y_values = [
+            comparison.request(WOODS_PLOT_PARAMS.y_data)
+            for comparison in sequence_comparisons
+        ]
+        largest_y_value = np.max(np.abs(y_values))
+        total_axis_yspan = largest_y_value * 2
+
+        effective_box_thickness = WOODS_PLOT_PARAMS.box_thickness * total_axis_yspan
 
         patches: list[mpl_patches.Rectangle] = []
 
-        total_axis_yspan = abs(np.diff(base_figure.axes[index].get_ylim())[0])
-
-        for comparison in sequence_comparisons:
-
-            effective_box_thickness = WOODS_PLOT_PARAMS.box_thickness * total_axis_yspan
+        for comparison, y in zip(sequence_comparisons, y_values):
 
             # Middle of the box should be aligned to the correct value
-            y_position = comparison.request(WOODS_PLOT_PARAMS.y_data) - (
-                effective_box_thickness / 2
-            )
+            y_position = y - (effective_box_thickness / 2)
 
             colour_data = comparison.request(WOODS_PLOT_PARAMS.colour_data)
 
@@ -1334,8 +1388,23 @@ def draw_woods_plot(analysis: FullSAUSCAnalysis, save: bool) -> None:
         base_figure.axes[index].add_collection(
             mpl_collections.PatchCollection(patches, match_original=True)
         )
-        base_figure.axes[index].autoscale_view(scalex=False, scaley=True)
+
+        # Woods plot should be symmetrical about y
+        base_figure.axes[index].set(
+            xlabel="Residue",
+            xlim=(0, analysis.experimental_params.max_residue + 1),
+            ylim=(-largest_y_value * 1.05, largest_y_value * 1.05),
+        )
+
+        # Add a small line for 0.
         base_figure.axes[index].axhline(0, linewidth=0.3, color="black", alpha=1)
+    
+    base_figure.fig.suptitle(
+        f"""
+        (SAUSC) Woods plot 
+        {analysis.filepath.stem}
+        """
+    )
 
     if save:
         for extension in FIGURE_SAVING_FORMATS:
@@ -1356,12 +1425,8 @@ def draw_volcano_plot(analysis: FullSAUSCAnalysis, annotate: bool, save: bool) -
         over_rows=False,
     )
 
-    statistical_boundary_params = {
-        "color": VOLCANO_PLOT_PARAMS.statistical_linecolour,
-        "linewidth": VOLCANO_PLOT_PARAMS.statistical_linewidth,
-        "linestyle": "--",
-        "zorder": -1,
-    }
+    if VOLCANO_PLOT_PARAMS.x_data is None:
+        raise ValueError("Must define a data type for the x axis.")
 
     for index, exposure in enumerate(
         (*analysis.experimental_params.exposures, CUMULATIVE_EXPOSURE_KEY)
@@ -1369,43 +1434,7 @@ def draw_volcano_plot(analysis: FullSAUSCAnalysis, annotate: bool, save: bool) -
 
         sequence_comparisons = analysis.sequence_comparisons[exposure]
 
-        base_figure.axes[index].axhline(
-            -np.log10(1 - analysis.user_params.confidence_interval),
-            **statistical_boundary_params,
-        )
-
-        # Draw statistical boundaries
-
-        if analysis.user_params.statistical_test | StatisticalTestType.T_TEST:
-
-            if VOLCANO_PLOT_PARAMS.y_data == DataForVisualisation.NEG_LOG_P:
-                threshold = -np.log10(1 - analysis.user_params.confidence_interval)
-                base_figure.axes[index].axhline(
-                    threshold, **statistical_boundary_params
-                )
-
-            elif VOLCANO_PLOT_PARAMS.y_data == DataForVisualisation.P_VALUE:
-                threshold = 1 - analysis.user_params.confidence_interval
-                base_figure.axes[index].axhline(
-                    threshold, **statistical_boundary_params
-                )
-
-        if (
-            VOLCANO_PLOT_PARAMS.x_data == DataForVisualisation.UPTAKE_DIFFERENCE
-            and analysis.user_params.statistical_test
-            | StatisticalTestType.GLOBAL_THRESHOLD
-        ):
-            threshold = (
-                analysis.global_threshold
-                if exposure != CUMULATIVE_EXPOSURE_KEY
-                else analysis.global_threshold
-                * len(
-                    analysis.experimental_params.exposures
-                )  # TODO: Should this account for 0 timestep?
-            )
-            base_figure.axes[index].axvline(threshold, **statistical_boundary_params)
-            base_figure.axes[index].axvline(-threshold, **statistical_boundary_params)
-
+        
         x_values = [s.request(VOLCANO_PLOT_PARAMS.x_data) for s in sequence_comparisons]
         y_values = [s.request(VOLCANO_PLOT_PARAMS.y_data) for s in sequence_comparisons]
         base_figure.axes[index].scatter(
@@ -1442,7 +1471,12 @@ def draw_volcano_plot(analysis: FullSAUSCAnalysis, annotate: bool, save: bool) -
                         (x_values[seq_index], y_values[seq_index]),
                         fontsize=VOLCANO_PLOT_PARAMS.annotation_fontsize,
                     )
-
+    base_figure.fig.suptitle(
+        f"""
+        (SAUSC) Volcano plot 
+        {analysis.filepath.stem}
+        """
+    )
     if save:
         for extension in FIGURE_SAVING_FORMATS:
             base_figure.save(
@@ -1633,7 +1667,7 @@ if __name__ == "pymol":
 
 if __name__ == "__main__":
     full_analysis = run_SAUSC_from_path(
-        filepath=r".\example_data\Cdstate.csv",
+        filepath=r".\example_data\Isopenicillin N Synthase 1BK0.csv",
         n_repeats=3,
         confidence_interval=0.95,
         statistical_test="HYBRID",
