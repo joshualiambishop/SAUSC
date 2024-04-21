@@ -25,9 +25,10 @@ Contact: joshualiambishop@gmail.com
 import dataclasses
 from datetime import datetime
 import enum
+import itertools
 import pathlib
 from tkinter import filedialog
-from typing import Any, Callable, Sequence, Type, TypeAlias, TypeVar, Optional, cast
+from typing import Callable, Sequence, Type, TypeAlias, TypeVar, Optional, cast
 
 import logging
 
@@ -230,7 +231,9 @@ def find_matching_enum_from_meta(
         name: str = possible_match.name
         if name.lower() == query.lower():
             return possible_match
-    raise ValueError(f"{query} not found in {enum}.")
+    raise ValueError(
+        f"{query} not found in {meta}, must be one of {list(meta.__members__.keys())}."
+    )
 
 
 def warn_SAUSC_not_run() -> None:
@@ -249,22 +252,25 @@ class GenericFigureOptions:
 
 
 @dataclasses.dataclass(frozen=True)
-class BaseVisualisationOptions(GenericFigureOptions):
+class BaseExposureVisualisationOptions(GenericFigureOptions):
     x_data: Optional[DataForVisualisation]
     y_data: DataForVisualisation
     colour_data: DataForVisualisation
     statistical_linewidth: float
     statistical_linecolour: str
     exposure_title_location: str
+
     def __post_init__(self) -> None:
         super().__post_init__()
         require_nonnegative(self.statistical_linewidth)
         if self.exposure_title_location not in ("center", "left", "right"):
-            raise ValueError("Exposure title location must be one of 'center', 'left', or 'right'")
+            raise ValueError(
+                "Exposure title location must be one of 'center', 'left', or 'right'"
+            )
 
 
 @dataclasses.dataclass(frozen=True)
-class WoodsPlotOptions(BaseVisualisationOptions):
+class WoodsPlotOptions(BaseExposureVisualisationOptions):
     box_thickness: float  # As a percentage of the y axes
 
     def __post_init__(self) -> None:
@@ -273,7 +279,7 @@ class WoodsPlotOptions(BaseVisualisationOptions):
 
 
 @dataclasses.dataclass(frozen=True)
-class VolcanoPlotOptions(BaseVisualisationOptions):
+class VolcanoPlotOptions(BaseExposureVisualisationOptions):
     circle_size: float
     circle_transparency: float
     annotation_fontsize: float
@@ -301,7 +307,7 @@ WOODS_PLOT_PARAMS = WoodsPlotOptions(
     box_thickness=0.02,
     statistical_linewidth=0.5,
     statistical_linecolour="black",
-    exposure_title_location="left"
+    exposure_title_location="left",
 )
 
 VOLCANO_PLOT_PARAMS = VolcanoPlotOptions(
@@ -315,7 +321,8 @@ VOLCANO_PLOT_PARAMS = VolcanoPlotOptions(
     annotation_fontsize=5.0,
     statistical_linewidth=0.5,
     statistical_linecolour="black",
-    exposure_title_location="center"
+    exposure_title_location="center",
+)
 )
 
 
@@ -1197,7 +1204,7 @@ class BaseFigure:
 
 def set_up_base_figure(
     analysis: FullSAUSCAnalysis,
-    plotting_params: BaseVisualisationOptions,
+    plotting_params: BaseExposureVisualisationOptions,
     over_rows: bool,
     xspan: float = 1,
     yspan: float = 1,
@@ -1249,7 +1256,7 @@ def set_up_base_figure(
                 if exposure == CUMULATIVE_EXPOSURE_KEY
                 else f"Exposure = {exposure} minutes"
             ),
-            loc = plotting_params.exposure_title_location
+            loc=plotting_params.exposure_title_location,
         )
 
         colour_map = (
@@ -1398,7 +1405,7 @@ def draw_woods_plot(analysis: FullSAUSCAnalysis, save: bool) -> None:
 
         # Add a small line for 0.
         base_figure.axes[index].axhline(0, linewidth=0.3, color="black", alpha=1)
-    
+
     base_figure.fig.suptitle(
         f"""
         (SAUSC) Woods plot 
@@ -1434,7 +1441,6 @@ def draw_volcano_plot(analysis: FullSAUSCAnalysis, annotate: bool, save: bool) -
 
         sequence_comparisons = analysis.sequence_comparisons[exposure]
 
-        
         x_values = [s.request(VOLCANO_PLOT_PARAMS.x_data) for s in sequence_comparisons]
         y_values = [s.request(VOLCANO_PLOT_PARAMS.y_data) for s in sequence_comparisons]
         base_figure.axes[index].scatter(
@@ -1653,11 +1659,13 @@ if __name__ == "pymol":
         draw_uptake_on_scenes(full_analysis)
 
         @cmd.extend
-        def woods_plot(save: PyMOLBool = "False"):
+        def woods_plot(save: PyMOLBool = "False") -> None:
             draw_woods_plot(full_analysis, save=convert_from_pymol(save, bool))
 
         @cmd.extend
-        def volcano_plot(annotate: PyMOLBool = "True", save: PyMOLBool = "False"):
+        def volcano_plot(
+            annotate: PyMOLBool = "True", save: PyMOLBool = "False"
+        ) -> None:
             draw_volcano_plot(
                 full_analysis,
                 annotate=convert_from_pymol(annotate, bool),
