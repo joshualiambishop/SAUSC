@@ -24,7 +24,7 @@ pip install numpy matplotlib scipy
 
 3. Navigate to your local SAUSC directory and select main.py
 
-4. With SAUSC now loaded within PyMOL's environment, run the following command:
+4. With SAUSC now loaded within PyMOL's environment, run the following command with your desired parameters:
 ```
 SAUSC n_repeats=3, confidence_interval=0.95, normalisation_mode=ACROSS_EXPOSURES
 ```
