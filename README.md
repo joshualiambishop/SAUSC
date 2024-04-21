@@ -29,17 +29,17 @@ pip install numpy matplotlib scipy
 SAUSC n_repeats=3, confidence_interval=0.95, normalisation_mode=ACROSS_EXPOSURES
 ```
 SAUSC takes several arguments to customise the analysis:
-| Argument                 | Default          | Purpose                                                                                        |
-|--------------------------|------------------|------------------------------------------------------------------------------------------------|
-| filepath                 | None             | Path to the HDX-MS data file. Not supplying a filepath will open a file browser.               |
-| n_repeats                | 3                | Number of repeats in the HDX-MS experiment. This must be set correctly for your data.          |
-| confidence_interval      | 0.95             | Statistical confidence interval for analysis.                                                  |
-| statistical_test         | HYBRID           | Type of statistical test to perform. Options are T_TEST, GLOBAL, or HYBRID                     |
-| protection_colourmap     | Blues            | Colour map for protected areas. Must be a sequential colourmap (reference)                     |
-| deprotection_colourmap   | Reds             | Colour map for deprotected areas. See above.                                                   |
-| insignificant_colour     | (0.9, 0.9, 0.9)  | Colour (RGB values) for insignificant results. Default is a slight gray.                       |
-| no_coverage_colour       | (0.1, 0.1, 0.1)  | Colour (RGB values) for areas with no coverage. Default is black.                              |
-| normalisation_mode       | ACROSS_EXPOSURES | Mode of normalisation for colour mapping. Options are INDIVIDUAL, ACROSS_EXPOSURES, or GLOBAL. |
+| Argument                 | Default          | Purpose                                                                                                  |
+|--------------------------|------------------|----------------------------------------------------------------------------------------------------------|
+| filepath                 | None             | Path to the HDX-MS data file. Not supplying a filepath will open a file browser.                         |
+| n_repeats                | 3                | Number of repeats in the HDX-MS experiment. This must be set correctly for your data.                    |
+| confidence_interval      | 0.95             | Statistical confidence interval for analysis.                                                            |
+| statistical_test         | HYBRID           | Type of statistical test to perform. Options are T_TEST, GLOBAL, or HYBRID                               |
+| protection_colourmap     | Blues            | Colour map for protected areas. Must be a sequential colourmap (reference)                               |
+| deprotection_colourmap   | Reds             | Colour map for deprotected areas. See above.                                                             |
+| insignificant_colour     | (0.9, 0.9, 0.9)  | Colour (RGB values) for insignificant results. Default is a slight gray.                                 |
+| no_coverage_colour       | (0.1, 0.1, 0.1)  | Colour (RGB values) for areas with no coverage. Default is black.                                        |
+| normalisation_mode       | ACROSS_EXPOSURES | Mode of normalisation for colour mapping. Options are INDIVIDUAL, ACROSS_EXPOSURES, or GLOBAL_THRESHOLD. |
 
 
 5. Once SAUSC has run with your desired settings, there will be a scene populated for each exposure time:
