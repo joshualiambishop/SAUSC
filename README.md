@@ -15,6 +15,9 @@ pip install numpy matplotlib scipy
 ```
 
 ## Usage
+![Screenshot](for_readme/Walkthrough.gif "Walkthrough usage.")
+
+
 1. Fetch your desired protein structure within PyMOL.
 
 2. Load the script through PyMOL via File -> Run Script...
@@ -64,10 +67,6 @@ volcano_plot
 Which will produce the figure:
 ![Screenshot](for_readme/example_volcano_plot_1bk0.png "Example of volcano plot.")
 
-
-## Examples and Walkthrough
-
-(Placeholder for images or GIFs to demonstrate script usage and results visualization)
 
 
 ## Contact
