@@ -165,7 +165,7 @@ class NormalisationMode(enum.Enum):
     )  # A single universal colourmap, not recommended with cumulative as that'll naturally skew the colours, but the option is there.
 
 
-class StatisticalTestType(enum.IntFlag):
+class StatisticalTestType(enum.IntEnum):
     """
     Type of statistical test used to perform comparisons, IntFlag for bitmasking operations
     and combinations.
