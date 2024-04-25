@@ -458,7 +458,7 @@ class BaseFragment:
     start_residue: int
     end_residue: int
     max_deuterium_uptake: float
-    inferred: bool = False
+    inferred: bool
 
     def __post_init__(self) -> None:
         require_all_nonnegative(
@@ -568,6 +568,7 @@ class Comparison(BaseFragment):
         return Comparison(
             sequence=reference.sequence,
             start_residue=reference.start_residue,
+            inferred=reference.inferred,
             end_residue=reference.end_residue,
             max_deuterium_uptake=reference.max_deuterium_uptake,
             uptake_difference=uptake_difference,
@@ -772,6 +773,7 @@ def load_state_data(
                         ]
                         for i in specific_indexes
                     },
+                    inferred=False,
                 )
             )
 
@@ -1379,7 +1381,7 @@ def set_up_base_figure(
 
 
 def draw_woods_plot(
-    analysis: FullSAUSCAnalysis, save: bool, draw_residues: bool
+    analysis: FullSAUSCAnalysis, save: bool, draw_residues: bool = False
 ) -> None:
     base_figure = set_up_base_figure(
         analysis=analysis,
