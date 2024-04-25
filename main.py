@@ -260,12 +260,15 @@ class BaseExposureVisualisationOptions(GenericFigureOptions):
     statistical_linecolour: str
     exposure_title_location: str
 
+
     def __post_init__(self) -> None:
         super().__post_init__()
         require_nonnegative(self.statistical_linewidth)
         if self.exposure_title_location not in ("center", "left", "right"):
             raise ValueError(
+                
                 "Exposure title location must be one of 'center', 'left', or 'right'"
+            
             )
 
 
@@ -291,6 +294,7 @@ class VolcanoPlotOptions(BaseExposureVisualisationOptions):
         if self.x_data is None:
             raise ValueError("Must define x data for the volcano plot.")
 
+
 #
 #
 # If for any reason you want to customise the fine details of the plots
@@ -309,6 +313,7 @@ WOODS_PLOT_PARAMS = WoodsPlotOptions(
     statistical_linecolour="black",
     exposure_title_location="left",
 )
+
 
 VOLCANO_PLOT_PARAMS = VolcanoPlotOptions(
     dpi=100.0,
@@ -485,7 +490,6 @@ class StateData(BaseFragment):
     """
 
     state: str
-    max_deuterium_uptake: float
     exposures: dict[str, Uptake]
 
     def __post_init__(self) -> None:
@@ -607,6 +611,11 @@ class ExperimentalParameters:
 
     def __post_init__(self):
         require_nonnegative(self.max_residue)
+        for exposure_time in self.exposures:
+            if not is_floatable(exposure_time):
+                raise ValueError(
+                    f"All exposures must be a numerical value, cannot convert timepoint {exposure_time} to a float."
+                )
         if not len(self.states) == 2:
             raise ValueError("SAUSC only supports datafiles with two states.")
 
@@ -644,7 +653,7 @@ def load_state_data(
     )
     headers = loaded_data[0].tolist()
 
-    # Z refers to [something], only present in cluster data, a common mistake.
+    # Z refers to charge, only present in cluster data, a common mistake.
     if "z" in loaded_data:
         raise InvalidFileFormatException(
             f"{filepath} appears to be cluster data, SAUSC only operates on state data."
@@ -755,14 +764,14 @@ def load_state_data(
 
 pretty_string_for: dict[enum.Enum, str] = {
     DataForVisualisation.UPTAKE_DIFFERENCE: "Uptake difference (Da)",
-    DataForVisualisation.RELATIVE_UPTAKE_DIFFERENCE: """Relative uptake difference (%)""",
+    DataForVisualisation.RELATIVE_UPTAKE_DIFFERENCE: "Relative uptake difference (%)",
     DataForVisualisation.P_VALUE: "P value",
-    DataForVisualisation.NEG_LOG_P: "-log(p)",
+    DataForVisualisation.NEG_LOG_P: "-log10(p)",
     NormalisationMode.INDIVIDUAL: "Normalised by timepoint",
     NormalisationMode.ACROSS_EXPOSURES: "Normalised across timepoints",
     NormalisationMode.GLOBAL: "Normalised globally",
     StatisticalTestType.T_TEST: "Welch's T-test",
-    StatisticalTestType.GLOBAL_THRESHOLD: "Global threshold",  # TODO: better name
+    StatisticalTestType.GLOBAL_THRESHOLD: "Global threshold",
     StatisticalTestType.HYBRID: "Hybrid test",
 }
 
@@ -871,11 +880,17 @@ def compare_uptakes(
 
     if user_params.statistical_test | StatisticalTestType.GLOBAL_THRESHOLD:
         if default.cumulative and other.cumulative:
+            numerical_timepoints = np.array(
+                [float(i) for i in experimental_params.exposures]
+            )
+            # Global threshold is multiplied by the number of labelling timepoints
+            # (excluding a 0 timepoint)
             globally_significant = abs(uptake_difference) > global_threshold * len(
-                experimental_params.exposures
-            )  # TODO: Not sure this is the correct thing to do...
+                without_zeros(numerical_timepoints)
+            )
         else:
             globally_significant = abs(uptake_difference) > global_threshold
+
         significant &= globally_significant
 
     return uptake_difference, p_value, significant
@@ -1095,6 +1110,7 @@ def run_SAUSC_from_path(
         Exposure lengths: {', '.join([exposure for exposure in experimental_params.exposures])}
         """
     )
+    # Calculation of the global threshold
     global_sem = pooled_standard_error_mean(
         stdevs=np.array(
             [
@@ -1396,6 +1412,16 @@ def draw_woods_plot(analysis: FullSAUSCAnalysis, save: bool) -> None:
             mpl_collections.PatchCollection(patches, match_original=True)
         )
 
+        if WOODS_PLOT_PARAMS.y_data == DataForVisualisation.UPTAKE_DIFFERENCE:
+            single_residue_uptakes = [
+                residue.uptake_difference
+                for residue in analysis.residue_comparisons[exposure]
+            ]
+            residues = np.arange(len(analysis.full_sequence))
+            base_figure.axes[index].plot(
+                residues, single_residue_uptakes, color="black"
+            )
+
         # Woods plot should be symmetrical about y
         base_figure.axes[index].set(
             xlabel="Residue",
@@ -1528,7 +1554,7 @@ if __name__ == "pymol":
         if analysis.user_params.normalisation_type != NormalisationMode.INDIVIDUAL:
             global_normalisation_value = find_normalisation_value(
                 analysis.sequence_comparisons,
-                data_type=DataForVisualisation.UPTAKE_DIFFERENCE,
+                data_type=DataForVisualisation.UPTAKE_DsIFFERENCE,
                 normalisation_mode=analysis.user_params.normalisation_type,
             )
             global_cmap = (
