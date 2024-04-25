@@ -260,15 +260,12 @@ class BaseExposureVisualisationOptions(GenericFigureOptions):
     statistical_linecolour: str
     exposure_title_location: str
 
-
     def __post_init__(self) -> None:
         super().__post_init__()
         require_nonnegative(self.statistical_linewidth)
         if self.exposure_title_location not in ("center", "left", "right"):
             raise ValueError(
-                
                 "Exposure title location must be one of 'center', 'left', or 'right'"
-            
             )
 
 
@@ -327,7 +324,6 @@ VOLCANO_PLOT_PARAMS = VolcanoPlotOptions(
     statistical_linewidth=0.5,
     statistical_linecolour="black",
     exposure_title_location="center",
-)
 )
 
 
