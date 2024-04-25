@@ -458,6 +458,7 @@ class BaseFragment:
     start_residue: int
     end_residue: int
     max_deuterium_uptake: float
+    inferred: bool = False
 
     def __post_init__(self) -> None:
         require_all_nonnegative(
@@ -481,8 +482,13 @@ class BaseFragment:
             and self.max_deuterium_uptake == other.max_deuterium_uptake
         )
 
-    def fully_encapsulates(self, other: "BaseFragment") -> "BaseFragment":
-        return self
+    def fully_encapsulates(self, other: "BaseFragment") -> bool:
+        if (
+            other.end_residue > self.end_residue
+            or other.start_residue < self.start_residue
+        ):
+            return False
+        return True
 
 
 @dataclasses.dataclass(frozen=True)
@@ -641,6 +647,13 @@ class UserParameters:
     def __post_init__(self):
         enforce_between_0_and_1_inclusive(self.confidence_interval)
         require_nonnegative(self.n_repeats)
+
+
+def modify_global_threshold_for_cumulative(
+    threshold: float, experimental_params: ExperimentalParameters
+) -> float:
+    numerical_timepoints = np.array([float(i) for i in experimental_params.exposures])
+    return threshold * len(without_zeros(numerical_timepoints))
 
 
 def load_state_data(
@@ -883,13 +896,12 @@ def compare_uptakes(
 
     if user_params.statistical_test | StatisticalTestType.GLOBAL_THRESHOLD:
         if default.cumulative and other.cumulative:
-            numerical_timepoints = np.array(
-                [float(i) for i in experimental_params.exposures]
-            )
             # Global threshold is multiplied by the number of labelling timepoints
             # (excluding a 0 timepoint)
-            globally_significant = abs(uptake_difference) > global_threshold * len(
-                without_zeros(numerical_timepoints)
+            globally_significant = abs(
+                uptake_difference
+            ) > modify_global_threshold_for_cumulative(
+                global_threshold, experimental_params=experimental_params
             )
         else:
             globally_significant = abs(uptake_difference) > global_threshold
@@ -944,6 +956,10 @@ def compare_states(
         results_by_exposure[default_exposure] = comparison
 
     return results_by_exposure
+
+
+def create_pseudo_sequences(observations: bool):
+    pass
 
 
 def split_comparisons_by_residue(
@@ -1329,9 +1345,9 @@ def set_up_base_figure(
                     threshold = (
                         analysis.global_threshold
                         if exposure != CUMULATIVE_EXPOSURE_KEY
-                        else analysis.global_threshold
-                        * len(
-                            analysis.experimental_params.exposures
+                        else modify_global_threshold_for_cumulative(
+                            analysis.global_threshold,
+                            analysis.experimental_params,
                         )  # TODO: Should this account for 0 timestep?
                     )
 
@@ -1480,16 +1496,18 @@ def draw_volcano_plot(analysis: FullSAUSCAnalysis, annotate: bool, save: bool) -
         base_figure.axes[index].scatter(
             x=x_values,
             y=y_values,
-            c=[
-                (
-                    base_figure.colourmaps[index].to_rgba(
-                        s.request(VOLCANO_PLOT_PARAMS.colour_data)
+            c=np.array(
+                [
+                    (
+                        base_figure.colourmaps[index].to_rgba(
+                            s.request(VOLCANO_PLOT_PARAMS.colour_data)
+                        )
+                        if s.is_significant
+                        else analysis.colouring.insignificant
                     )
-                    if s.is_significant
-                    else analysis.colouring.insignificant
-                )
-                for s in sequence_comparisons
-            ],
+                    for s in sequence_comparisons
+                ]
+            ),
             s=VOLCANO_PLOT_PARAMS.circle_size,
             alpha=VOLCANO_PLOT_PARAMS.circle_transparency,
         )
@@ -1533,7 +1551,9 @@ if __name__ == "pymol":
     # Allow the user to run a function after preloading SAUSC, but warn in the case
     # the function hasn't actually been run
     @cmd.extend
-    def woods_plot(save: PyMOLBool = "False") -> None:
+    def woods_plot(
+        save: PyMOLBool = "False", draw_residues: PyMOLBool = "False"
+    ) -> None:
         warn_SAUSC_not_run()
 
     @cmd.extend
