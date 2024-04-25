@@ -1550,7 +1550,7 @@ if __name__ == "pymol":
         if analysis.user_params.normalisation_type != NormalisationMode.INDIVIDUAL:
             global_normalisation_value = find_normalisation_value(
                 analysis.sequence_comparisons,
-                data_type=DataForVisualisation.UPTAKE_DsIFFERENCE,
+                data_type=DataForVisualisation.UPTAKE_DIFFERENCE,
                 normalisation_mode=analysis.user_params.normalisation_type,
             )
             global_cmap = (
