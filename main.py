@@ -25,7 +25,6 @@ Contact: joshualiambishop@gmail.com
 import dataclasses
 from datetime import datetime
 import enum
-import itertools
 import pathlib
 from tkinter import filedialog
 from typing import Callable, Sequence, Type, TypeAlias, TypeVar, Optional, cast
@@ -89,7 +88,10 @@ Colour: TypeAlias = tuple[float, float, float]
 # I've made this a constant simply for sanity.
 CUMULATIVE_EXPOSURE_KEY = "Cumulative"
 # If saving a figure, all the following formats will be saved together
-FIGURE_SAVING_FORMATS: list[str] = [".png", ".svg"]
+FIGURE_SAVING_FORMATS: list[str] = [
+    ".png",
+    ".svg",
+]
 # These global variables ensure that PyMOL
 # scenes and colours are never overwritten
 GLOBAL_CUSTOM_COLOUR_INDEX = 1
@@ -272,6 +274,7 @@ class BaseExposureVisualisationOptions(GenericFigureOptions):
 @dataclasses.dataclass(frozen=True)
 class WoodsPlotOptions(BaseExposureVisualisationOptions):
     box_thickness: float  # As a percentage of the y axes
+    axes_dimensions: tuple[float, float]
 
     def __post_init__(self) -> None:
         super().__post_init__()
@@ -301,7 +304,7 @@ class VolcanoPlotOptions(BaseExposureVisualisationOptions):
 
 WOODS_PLOT_PARAMS = WoodsPlotOptions(
     dpi=100.0,
-    scale=6.0,
+    scale=4.0,
     x_data=None,  # Must be residue, handled within the function
     y_data=DataForVisualisation.UPTAKE_DIFFERENCE,
     colour_data=DataForVisualisation.RELATIVE_UPTAKE_DIFFERENCE,
@@ -309,6 +312,7 @@ WOODS_PLOT_PARAMS = WoodsPlotOptions(
     statistical_linewidth=0.5,
     statistical_linecolour="black",
     exposure_title_location="left",
+    axes_dimensions=(5, 1),
 )
 
 
@@ -476,6 +480,9 @@ class BaseFragment:
             and self.end_residue == other.end_residue
             and self.max_deuterium_uptake == other.max_deuterium_uptake
         )
+
+    def fully_encapsulates(self, other: "BaseFragment") -> "BaseFragment":
+        return self
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1355,13 +1362,15 @@ def set_up_base_figure(
     return BaseFigure(fig=fig, axes=axes, colourmaps=axes_colourmaps)
 
 
-def draw_woods_plot(analysis: FullSAUSCAnalysis, save: bool) -> None:
+def draw_woods_plot(
+    analysis: FullSAUSCAnalysis, save: bool, draw_residues: bool
+) -> None:
     base_figure = set_up_base_figure(
         analysis=analysis,
         plotting_params=WOODS_PLOT_PARAMS,
         over_rows=True,
-        xspan=3,
-        yspan=1,
+        xspan=WOODS_PLOT_PARAMS.axes_dimensions[0],
+        yspan=WOODS_PLOT_PARAMS.axes_dimensions[1],
     )
 
     for index, exposure in enumerate(
@@ -1408,7 +1417,10 @@ def draw_woods_plot(analysis: FullSAUSCAnalysis, save: bool) -> None:
             mpl_collections.PatchCollection(patches, match_original=True)
         )
 
-        if WOODS_PLOT_PARAMS.y_data == DataForVisualisation.UPTAKE_DIFFERENCE:
+        if (
+            draw_residues
+            and WOODS_PLOT_PARAMS.y_data == DataForVisualisation.UPTAKE_DIFFERENCE
+        ):
             single_residue_uptakes = [
                 residue.uptake_difference
                 for residue in analysis.residue_comparisons[exposure]
@@ -1681,8 +1693,14 @@ if __name__ == "pymol":
         draw_uptake_on_scenes(full_analysis)
 
         @cmd.extend
-        def woods_plot(save: PyMOLBool = "False") -> None:
-            draw_woods_plot(full_analysis, save=convert_from_pymol(save, bool))
+        def woods_plot(
+            save: PyMOLBool = "False", draw_residues: PyMOLBool = "False"
+        ) -> None:
+            draw_woods_plot(
+                full_analysis,
+                save=convert_from_pymol(save, bool),
+                draw_residues=convert_from_pymol(draw_residues, bool),
+            )
 
         @cmd.extend
         def volcano_plot(
