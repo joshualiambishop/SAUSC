@@ -1503,7 +1503,9 @@ def draw_volcano_plot(analysis: FullSAUSCAnalysis, annotate: bool, save: bool) -
                     (
                         base_figure.colourmaps[index].to_rgba(
                             s.request(VOLCANO_PLOT_PARAMS.colour_data)
-                        )
+                        )[
+                            :-1
+                        ]  # no alpha
                         if s.is_significant
                         else analysis.colouring.insignificant
                     )
