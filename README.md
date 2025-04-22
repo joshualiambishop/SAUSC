@@ -69,5 +69,3 @@ Which will produce the figure:
 
 
 
-## Contact
-For queries, contact Josh Bishop at joshualiambishop@gmail.com.
